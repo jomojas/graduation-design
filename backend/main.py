@@ -2,6 +2,7 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -9,14 +10,141 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from nibabel.filebasedimages import ImageFileError
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from services.converter import CT2PETConverter, get_converter
 from utils.file_utils import CHECKPOINT_DIR, OUTPUT_DIR, UPLOAD_DIR, ensure_directories
 
 
+class InferenceStatus(BaseModel):
+    """Track the status of inference execution."""
+
+    state: Literal["pending", "processing", "completed", "failed"]
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+class MetricsState(BaseModel):
+    """Track metrics collected during conversion."""
+
+    inference_time_ms: Optional[float] = None
+    output_shape: Optional[tuple[int, int, int]] = None
+    slices_processed: Optional[int] = None
+
+
+class StudyManifest(BaseModel):
+    """
+    Canonical study/job manifest covering all metadata and paths.
+
+    Supports multiple source types (NIfTI, DICOM) and tracks the complete
+    lifecycle of a case from upload through inference and optional evaluation.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "job_id": "abc123def456",
+                "source_type": "nifti",
+                "upload_mode": "with_evaluation",
+                "patient_id": "P001",
+                "patient_name": "John Doe",
+                "study_id": "S001",
+                "study_date": "2025-03-21",
+                "ct_volume_path": "/uploads/abc123def456/ct.nii.gz",
+                "real_pet_volume_path": "/uploads/abc123def456/real_pet.nii.gz",
+                "pred_pet_volume_path": "/outputs/abc123def456/pred_pet.nii.gz",
+                "num_slices": 128,
+                "shape": [512, 512, 128],
+                "inference_status": {
+                    "state": "completed",
+                    "started_at": "2025-03-21T10:00:00",
+                    "completed_at": "2025-03-21T10:05:00",
+                    "error": None,
+                },
+                "metrics": {
+                    "inference_time_ms": 300000.0,
+                    "output_shape": [512, 512, 128],
+                    "slices_processed": 128,
+                },
+                "error_status": None,
+                "created_at": "2025-03-21T10:00:00",
+                "updated_at": "2025-03-21T10:05:00",
+            }
+        }
+    )
+
+    # Core identifiers
+    job_id: str = Field(..., description="Unique job identifier (UUID hex)")
+    source_type: Literal["nifti", "dicom_zip", "dicom_dir"] = Field(
+        default="nifti", description="Type of input source"
+    )
+    upload_mode: Literal["inference_only", "with_evaluation"] = Field(
+        default="inference_only",
+        description="Whether evaluation data (real PET) is included",
+    )
+
+    # Patient/Study metadata
+    patient_id: Optional[str] = Field(
+        default=None, description="Patient identifier (if available)"
+    )
+    patient_name: Optional[str] = Field(
+        default=None, description="Patient name (if available)"
+    )
+    study_id: Optional[str] = Field(
+        default=None, description="Study identifier (if available)"
+    )
+    study_date: Optional[str] = Field(
+        default=None, description="Study date in ISO format (if available)"
+    )
+
+    # Standardized volume paths
+    ct_volume_path: str = Field(
+        ..., description="Path to input CT volume (NIfTI format)"
+    )
+    real_pet_volume_path: Optional[str] = Field(
+        default=None,
+        description="Path to real PET volume (NIfTI format) for evaluation",
+    )
+    pred_pet_volume_path: str = Field(
+        ..., description="Path to predicted PET volume output"
+    )
+
+    # Volume metadata
+    num_slices: int = Field(..., description="Number of slices in volume")
+    shape: tuple[int, int, int] = Field(
+        ..., description="3D shape (height, width, depth) in voxels"
+    )
+
+    # Inference status tracking
+    inference_status: InferenceStatus = Field(
+        default_factory=lambda: InferenceStatus(state="pending"),
+        description="Current inference execution status",
+    )
+
+    # Metrics collected post-inference
+    metrics: MetricsState = Field(
+        default_factory=MetricsState, description="Inference and output metrics"
+    )
+
+    # Error tracking
+    error_status: Optional[str] = Field(
+        default=None, description="Error message if processing failed"
+    )
+
+    # Timestamps
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update timestamp"
+    )
+
+
 @dataclass
 class CaseRecord:
+    """In-memory record for backward compatibility with NIfTI flow."""
+
     job_id: str
     ct_path: str
     pred_pet_path: str
