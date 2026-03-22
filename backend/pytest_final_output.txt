@@ -1,0 +1,22 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.8, pytest-7.4.3, pluggy-1.6.0 -- C:\Users\Jomo\Desktop\folders\graduation-design\backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Jomo\Desktop\folders\graduation-design\backend
+plugins: anyio-3.7.1
+collecting ... collected 13 items
+
+tests/test_upload.py::test_upload_uncompressed_nii_succeeds PASSED       [  7%]
+tests/test_upload.py::test_upload_compressed_nii_gz_succeeds PASSED      [ 15%]
+tests/test_upload.py::test_upload_invalid_file_returns_400_not_500 PASSED [ 23%]
+tests/test_upload.py::test_upload_with_both_ct_and_real_pet PASSED       [ 30%]
+tests/test_upload.py::test_upload_uncompressed_real_pet_succeeds PASSED  [ 38%]
+tests/test_upload.py::test_case_endpoints_work_after_upload PASSED       [ 46%]
+tests/test_upload.py::test_study_manifest_model_validates_required_fields PASSED [ 53%]
+tests/test_upload.py::test_study_manifest_has_inference_status PASSED    [ 61%]
+tests/test_upload.py::test_study_manifest_has_metrics_state PASSED       [ 69%]
+tests/test_upload.py::test_study_manifest_supports_evaluation_mode PASSED [ 76%]
+tests/test_upload.py::test_study_manifest_missing_required_field_fails PASSED [ 84%]
+tests/test_upload.py::test_study_manifest_invalid_source_type_fails PASSED [ 92%]
+tests/test_upload.py::test_study_manifest_serializes_to_json PASSED      [100%]
+
+============================= 13 passed in 3.18s ==============================

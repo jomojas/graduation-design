@@ -45,6 +45,12 @@ class TestConverterWithMockedModel:
 
         assert result.num_slices == 4
         assert result.shape == (16, 16, 4)
+        assert result.inference_status == "completed"
+        assert result.inference_started_at is not None
+        assert result.inference_completed_at is not None
+        assert result.inference_duration_ms is not None
+        assert result.inference_duration_ms >= 0.0
+        assert result.inference_error is None
         assert os.path.exists(output_path)
 
         # Verify output is valid NIfTI
@@ -169,6 +175,20 @@ class TestConverterConversionResult:
 
         assert isinstance(result.shape, tuple)
         assert len(result.shape) == 3
+
+    def test_conversion_result_defaults_include_engine_fields(self):
+        """Engine result fields should have stable defaults."""
+        result = ConversionResult(
+            pred_pet_path="/outputs/test/pred_pet.nii.gz",
+            num_slices=5,
+            shape=(32, 32, 5),
+        )
+
+        assert result.inference_status == "completed"
+        assert result.inference_started_at is None
+        assert result.inference_completed_at is None
+        assert result.inference_duration_ms is None
+        assert result.inference_error is None
 
 
 class TestConverterEdgeCases:

@@ -1,0 +1,32 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.8, pytest-7.4.3, pluggy-1.6.0 -- C:\Users\Jomo\Desktop\folders\graduation-design\backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Jomo\Desktop\folders\graduation-design\backend
+plugins: anyio-3.7.1
+collecting ... collected 13 items
+
+tests/test_upload.py::test_upload_uncompressed_nii_succeeds PASSED       [  7%]
+tests/test_upload.py::test_upload_compressed_nii_gz_succeeds PASSED      [ 15%]
+tests/test_upload.py::test_upload_invalid_file_returns_400_not_500 PASSED [ 23%]
+tests/test_upload.py::test_upload_with_both_ct_and_real_pet PASSED       [ 30%]
+tests/test_upload.py::test_upload_uncompressed_real_pet_succeeds PASSED  [ 38%]
+tests/test_upload.py::test_case_endpoints_work_after_upload PASSED       [ 46%]
+tests/test_upload.py::test_study_manifest_model_validates_required_fields PASSED [ 53%]
+tests/test_upload.py::test_study_manifest_has_inference_status PASSED    [ 61%]
+tests/test_upload.py::test_study_manifest_has_metrics_state PASSED       [ 69%]
+tests/test_upload.py::test_study_manifest_supports_evaluation_mode PASSED [ 76%]
+tests/test_upload.py::test_study_manifest_missing_required_field_fails PASSED [ 84%]
+tests/test_upload.py::test_study_manifest_invalid_source_type_fails PASSED [ 92%]
+tests/test_upload.py::test_study_manifest_serializes_to_json PASSED      [100%]
+
+============================== warnings summary ===============================
+main.py:45
+  C:\Users\Jomo\Desktop\folders\graduation-design\backend\main.py:45: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    job_id: str = Field(
+
+main.py:36
+  C:\Users\Jomo\Desktop\folders\graduation-design\backend\main.py:36: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class StudyManifest(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 13 passed, 2 warnings in 1.56s ========================

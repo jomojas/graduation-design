@@ -36,6 +36,7 @@ dependencies = [
     { name = "pydicom" },
     { name = "python-multipart" },
     { name = "setuptools" },
+    { name = "simpleitk" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "uvicorn" },
@@ -58,6 +59,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = "==7.4.3" },
     { name = "python-multipart", specifier = "==0.0.6" },
     { name = "setuptools", specifier = "==68.2.0" },
+    { name = "simpleitk", specifier = "==2.4.0" },
     { name = "torch", specifier = "==2.1.0" },
     { name = "torchvision", specifier = "==0.16.0" },
     { name = "uvicorn", specifier = "==0.24.0" },
@@ -716,6 +718,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ac/e0/4ccbb616e5f30d3595fa44ccc66ba5ac38e68885bcd888916d39f8ba480a/setuptools-68.2.0.tar.gz", hash = "sha256:00478ca80aeebeecb2f288d3206b0de568df5cd2b8fada1209843cc9a8d88a48", size = 2203387, upload-time = "2023-09-06T23:28:55.957Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3b/0715493246eb08e93506f4da0efe1d05a3c9d9ac3b76e97cc362890e6adf/setuptools-68.2.0-py3-none-any.whl", hash = "sha256:af3d5949030c3f493f550876b2fd1dd5ec66689c4ee5d5344f009746f71fd5a8", size = 807813, upload-time = "2023-09-06T23:28:53.307Z" },
+]
+
+[[package]]
+name = "simpleitk"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/5e/17f967ddb444df4d0fdd7ee2d183bea8ca7ac36782213df8ea8f11f67e74/simpleitk-2.4.0.tar.gz", hash = "sha256:73e16e25291f8d107409aaad9e9a731840c273726516cd82b8f174a8552ea7c3", size = 2105870, upload-time = "2025-04-29T20:01:01.658Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/21/ca2fa843a240973330d41393b798e23cc9149060cde51a6881fe2dccd4c3/SimpleITK-2.4.0-cp311-abi3-macosx_10_9_x86_64.whl", hash = "sha256:bcdcdb14cc4da7bcf3b00dbbe5b8d478e6b0e59962406c2c480b6bb0441fa1dc", size = 44713970, upload-time = "2024-08-14T20:24:19.181Z" },
+    { url = "https://files.pythonhosted.org/packages/63/79/d0aa407da1e853fa5f02e93b6d5bde599e021751294381b565e07276f0b0/SimpleITK-2.4.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:09eb7982638b049ca36cea9f8612071af2c3f0c74776aad35c7a5aebb4a3f90e", size = 30231572, upload-time = "2024-08-14T20:24:24.007Z" },
+    { url = "https://files.pythonhosted.org/packages/87/3d/fd7d91d5f0b86ffd8bc8abfe9e46c4a0033c1f15a6ad516a116cb98fd791/SimpleITK-2.4.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:db42b4a7e934df21ad051706612da2cdcc4fdd3d8d360948878d27d0d92129b4", size = 47706759, upload-time = "2024-08-14T20:24:28.623Z" },
+    { url = "https://files.pythonhosted.org/packages/48/f8/3f00cc6d4f11b3cd934e3024c5be71ffc6d30d4620a16de7d194381f92f9/SimpleITK-2.4.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:91a8eaec0383d39f5a39b4307d0310611dad08182e709dd0fe1e788f80f24b35", size = 52344521, upload-time = "2024-08-14T20:24:34.487Z" },
+    { url = "https://files.pythonhosted.org/packages/58/ff/6526142fe44a3d9a2f4725fc8d446acc0044f672148b15a5c984351ae1ef/SimpleITK-2.4.0-cp311-abi3-win_amd64.whl", hash = "sha256:f9681520793a36b229f1f177790264ab7503180a6ea9c38b2c1d219d40f87994", size = 18658685, upload-time = "2024-08-14T20:24:38.656Z" },
 ]
 
 [[package]]

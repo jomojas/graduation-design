@@ -1,8 +1,12 @@
 from collections import OrderedDict
+import logging
 from typing import Optional
 
 import torch
 import torch.nn as nn
+
+
+logger = logging.getLogger(__name__)
 
 
 class ResidualConv(nn.Module):
@@ -208,18 +212,20 @@ def _normalize_state_dict_keys(state_dict: OrderedDict) -> OrderedDict:
 
 
 def load_model(model_path: Optional[str], device: str = "cuda") -> Generator:
+    if not model_path:
+        raise RuntimeError("Model checkpoint path is required")
+
     model = Generator(input_channels=7, output_channels=3)
 
-    if model_path:
-        try:
-            raw_state = torch.load(model_path, map_location=device)
-            state_dict = _normalize_state_dict_keys(raw_state)
-            model.load_state_dict(state_dict, strict=True)
-            print(f"Model loaded: {model_path}")
-        except FileNotFoundError:
-            print(f"Warning: model not found at {model_path}; using random weights")
-        except Exception as exc:
-            print(f"Warning: model load failed: {exc}; using random weights")
+    try:
+        raw_state = torch.load(model_path, map_location=device)
+        state_dict = _normalize_state_dict_keys(raw_state)
+        model.load_state_dict(state_dict, strict=True)
+        logger.info("Model loaded: %s", model_path)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Model checkpoint not found at {model_path}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Model checkpoint load failed: {exc}") from exc
 
     model = model.to(device)
     model.eval()

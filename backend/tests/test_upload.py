@@ -13,19 +13,29 @@ All tests are expected to FAIL initially (RED phase) until the fix is implemente
 
 import gzip
 import io
+import zipfile
+from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
-import nibabel as nib
 import numpy as np
 import pytest
+from nibabel.loadsave import load, save
+from nibabel.nifti1 import Nifti1Image
+from pydicom.dataset import FileDataset, FileMetaDataset
+from pydicom.uid import CTImageStorage, ExplicitVRLittleEndian, generate_uid
 from fastapi.testclient import TestClient
 
-from main import app, StudyManifest, InferenceStatus, MetricsState
+import main
+from main import app, InferenceStatus, MetricsState, StudyManifest, study_manifests
 
 
 @pytest.fixture
-def client():
+def client(mock_converter, monkeypatch):
     """FastAPI test client fixture."""
+    monkeypatch.setattr(main, "converter", mock_converter)
+    monkeypatch.setattr(main, "model_loaded", True)
+    monkeypatch.setattr(main, "get_converter", lambda _model_path=None: mock_converter)
     return TestClient(app)
 
 
@@ -38,11 +48,11 @@ def minimal_nifti_bytes(tmp_path):
     """
     volume = np.random.rand(16, 16, 4).astype(np.float32)
     affine = np.eye(4)
-    nifti_img = nib.Nifti1Image(volume, affine)
+    nifti_img = Nifti1Image(volume, affine)
 
     # Write to temp file then read bytes
     temp_file = tmp_path / "temp.nii"
-    nib.save(nifti_img, str(temp_file))
+    save(nifti_img, str(temp_file))
     return temp_file.read_bytes()
 
 
@@ -55,11 +65,11 @@ def minimal_nifti_gz_bytes(tmp_path):
     """
     volume = np.random.rand(16, 16, 4).astype(np.float32)
     affine = np.eye(4)
-    nifti_img = nib.Nifti1Image(volume, affine)
+    nifti_img = Nifti1Image(volume, affine)
 
     # Write to temp file with .gz extension (nibabel handles compression)
     temp_file = tmp_path / "temp.nii.gz"
-    nib.save(nifti_img, str(temp_file))
+    save(nifti_img, str(temp_file))
     return temp_file.read_bytes()
 
 
@@ -67,6 +77,141 @@ def minimal_nifti_gz_bytes(tmp_path):
 def invalid_file_bytes():
     """Generate invalid bytes (not a real NIfTI file)."""
     return b"This is not a valid NIfTI file, just random text."
+
+
+@pytest.fixture
+def mismatched_spacing_pet_bytes(tmp_path):
+    volume = np.random.rand(8, 8, 2).astype(np.float32)
+    affine = np.diag([2.0, 2.0, 2.0, 1.0])
+    nifti_img = Nifti1Image(volume, affine)
+    temp_file = tmp_path / "pet_mismatch.nii.gz"
+    save(nifti_img, str(temp_file))
+    return temp_file.read_bytes()
+
+
+@pytest.fixture
+def tiny_pet_bytes(tmp_path):
+    volume = np.random.rand(2, 2, 1).astype(np.float32)
+    affine = np.eye(4)
+    nifti_img = Nifti1Image(volume, affine)
+    temp_file = tmp_path / "pet_tiny.nii.gz"
+    save(nifti_img, str(temp_file))
+    return temp_file.read_bytes()
+
+
+def _create_dicom_slice(
+    series_uid: str,
+    z_position: float,
+    instance_number: int,
+    *,
+    include_patient_tags: bool = True,
+) -> bytes:
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = CTImageStorage
+    file_meta.MediaStorageSOPInstanceUID = generate_uid()
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = generate_uid()
+
+    ds = FileDataset(
+        filename_or_obj="",
+        dataset={},
+        file_meta=file_meta,
+        preamble=b"\0" * 128,
+    )
+    ds.Modality = "CT"
+    ds.SeriesInstanceUID = series_uid
+    ds.StudyInstanceUID = generate_uid()
+    ds.FrameOfReferenceUID = generate_uid()
+    if include_patient_tags:
+        ds.PatientID = "PT-001"
+        ds.PatientName = "Unit^Test"
+        ds.StudyID = "STD-001"
+        ds.StudyDate = datetime.utcnow().strftime("%Y%m%d")
+    ds.SeriesNumber = 1
+    ds.InstanceNumber = instance_number
+    ds.ImagePositionPatient = [0.0, 0.0, float(z_position)]
+    ds.ImageOrientationPatient = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    ds.PixelSpacing = [1.0, 1.0]
+    ds.SliceThickness = 1.0
+    ds.Rows = 16
+    ds.Columns = 16
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.BitsAllocated = 16
+    ds.BitsStored = 16
+    ds.HighBit = 15
+    ds.PixelRepresentation = 1
+    ds.RescaleIntercept = 0
+    ds.RescaleSlope = 1
+
+    pixel_array = (np.ones((16, 16), dtype=np.int16) * instance_number).astype(np.int16)
+    ds.PixelData = pixel_array.tobytes()
+    ds.is_little_endian = True
+    ds.is_implicit_VR = False
+
+    buffer = io.BytesIO()
+    ds.save_as(buffer, write_like_original=False)
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def dicom_zip_bytes() -> bytes:
+    series_uid = generate_uid()
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(
+        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as zf:
+        for index, z in enumerate([0.0, 1.5, 3.0, 4.5], start=1):
+            dicom_bytes = _create_dicom_slice(series_uid, z, index)
+            zf.writestr(f"series/slice_{index}.dcm", dicom_bytes)
+    return archive_buffer.getvalue()
+
+
+@pytest.fixture
+def dicom_zip_missing_patient_tags() -> bytes:
+    series_uid = generate_uid()
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(
+        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as zf:
+        for index, z in enumerate([0.0, 1.5, 3.0, 4.5], start=1):
+            dicom_bytes = _create_dicom_slice(
+                series_uid, z, index, include_patient_tags=False
+            )
+            zf.writestr(f"series/slice_{index}.dcm", dicom_bytes)
+    return archive_buffer.getvalue()
+
+
+@pytest.fixture
+def multi_series_dicom_zip_bytes() -> bytes:
+    series_uid_1 = generate_uid()
+    series_uid_2 = generate_uid()
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(
+        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as zf:
+        zf.writestr("series_a/slice_1.dcm", _create_dicom_slice(series_uid_1, 0.0, 1))
+        zf.writestr("series_b/slice_1.dcm", _create_dicom_slice(series_uid_2, 1.0, 1))
+    return archive_buffer.getvalue()
+
+
+@pytest.fixture
+def dicom_directory_upload_parts() -> list[tuple[str, tuple[str, bytes, str]]]:
+    series_uid = generate_uid()
+    parts: list[tuple[str, tuple[str, bytes, str]]] = []
+    for index, z in enumerate([0.0, 1.25, 2.5, 3.75], start=1):
+        dicom_bytes = _create_dicom_slice(series_uid, z, index)
+        parts.append(
+            (
+                "dicom_files",
+                (
+                    f"study/subdir/slice_{index}.dcm",
+                    dicom_bytes,
+                    "application/dicom",
+                ),
+            )
+        )
+    return parts
 
 
 def test_upload_uncompressed_nii_succeeds(client, minimal_nifti_bytes):
@@ -90,6 +235,17 @@ def test_upload_uncompressed_nii_succeeds(client, minimal_nifti_bytes):
     assert data["num_slices"] == 4  # Our test volume is 16x16x4
     assert data["shape"] == [16, 16, 4]
     assert data["has_real_pet"] is False
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.ct_volume_path.endswith("ct.nii.gz")
+
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.inference_status.state == "completed"
+    assert manifest.inference_status.started_at is not None
+    assert manifest.inference_status.completed_at is not None
+    assert manifest.metrics.inference_time_ms is not None
+    assert manifest.metrics.inference_time_ms >= 0.0
+    assert manifest.metrics.output_shape == (16, 16, 4)
+    assert manifest.metrics.slices_processed == 4
 
 
 def test_upload_compressed_nii_gz_succeeds(client, minimal_nifti_gz_bytes):
@@ -153,6 +309,34 @@ def test_upload_invalid_file_returns_400_not_500(client, invalid_file_bytes):
     ), f"Expected error detail about invalid NIfTI, got: {data['detail']}"
 
 
+def test_upload_returns_503_when_model_not_available(monkeypatch, minimal_nifti_bytes):
+    monkeypatch.setattr(main, "converter", None)
+    monkeypatch.setattr(main, "model_loaded", False)
+    monkeypatch.setattr(
+        main,
+        "get_converter",
+        lambda _model_path=None: (_ for _ in ()).throw(
+            RuntimeError("checkpoint load failed")
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/upload",
+            files={
+                "ct_file": (
+                    "ct_scan.nii",
+                    minimal_nifti_bytes,
+                    "application/octet-stream",
+                )
+            },
+        )
+
+    assert response.status_code == 503, response.text
+    detail = response.json().get("detail", "")
+    assert "model failed to load" in detail.lower()
+
+
 def test_upload_with_both_ct_and_real_pet(client, minimal_nifti_gz_bytes):
     """
     Test uploading both CT and real PET files (evaluation mode).
@@ -180,6 +364,10 @@ def test_upload_with_both_ct_and_real_pet(client, minimal_nifti_gz_bytes):
     data = response.json()
     assert data["success"] is True
     assert data["has_real_pet"] is True
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.ct_volume_path.endswith("ct.nii.gz")
+    assert manifest.real_pet_volume_path is not None
+    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
 
 
 def test_upload_uncompressed_real_pet_succeeds(
@@ -232,11 +420,287 @@ def test_case_endpoints_work_after_upload(client, minimal_nifti_bytes):
     assert meta_data["job_id"] == job_id
     assert meta_data["num_slices"] == upload_data["num_slices"]
     assert meta_data["shape"] == upload_data["shape"]
+    assert meta_data["source_type"] == "nifti"
+    assert meta_data["upload_mode"] == "inference_only"
+    assert meta_data["modality"] == "CT"
+    assert meta_data["processing_status"] == "completed"
+    assert meta_data["spacing_xyz_mm"] is not None
+    assert len(meta_data["spacing_xyz_mm"]) == 3
+    assert meta_data["slice_spacing_mm"] is None
+    assert meta_data["patient_id"] is None
+    assert meta_data["patient_name"] is None
+    assert meta_data["study_id"] is None
+    assert meta_data["study_date"] is None
 
     slice_response = client.get(f"/cases/{job_id}/slice/0", params={"view": "ct"})
     assert slice_response.status_code == 200
     assert slice_response.headers["content-type"] == "image/png"
     assert slice_response.content.startswith(b"\x89PNG")
+
+
+def test_study_status_endpoint_returns_manifest_backed_payload(
+    client, minimal_nifti_bytes
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": ("ct_scan.nii", minimal_nifti_bytes, "application/octet-stream")
+        },
+    )
+    assert response.status_code == 200, response.text
+    upload_data = response.json()
+    job_id = upload_data["job_id"]
+
+    status_response = client.get(f"/studies/{job_id}/status")
+    assert status_response.status_code == 200, status_response.text
+    status_data = status_response.json()
+    assert status_data["success"] is True
+    assert status_data["study_id"] == job_id
+    assert status_data["job_id"] == job_id
+    assert status_data["status"] == "completed"
+    assert status_data["num_slices"] == upload_data["num_slices"]
+    assert status_data["shape"] == upload_data["shape"]
+    assert status_data["metrics"]["inference_time_ms"] is not None
+    assert status_data["metrics"]["slices_processed"] == upload_data["num_slices"]
+
+
+def test_study_result_endpoint_returns_frontend_ready_payload(
+    client, minimal_nifti_bytes
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": ("ct_scan.nii", minimal_nifti_bytes, "application/octet-stream")
+        },
+    )
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
+
+    result_response = client.get(f"/studies/{job_id}/result")
+    assert result_response.status_code == 200, result_response.text
+    result_data = result_response.json()
+    assert result_data["success"] is True
+    assert result_data["study_id"] == job_id
+    assert result_data["job_id"] == job_id
+    assert result_data["status"] == "completed"
+    assert result_data["ct"]["available"] is True
+    assert result_data["predicted_pet"]["available"] is True
+    assert result_data["real_pet"]["available"] is False
+    assert result_data["ct"]["nifti_path"].startswith("/uploads/")
+    assert "\\" not in result_data["ct"]["nifti_path"]
+    assert result_data["predicted_pet"]["nifti_path"].startswith("/outputs/")
+    assert "\\" not in result_data["predicted_pet"]["nifti_path"]
+    assert result_data["real_pet"]["nifti_path"] is None
+    assert result_data["ct"]["slice_endpoint_template"] == (
+        f"/cases/{job_id}/slice/{{index}}?view=ct"
+    )
+    assert result_data["predicted_pet"]["slice_endpoint_template"] == (
+        f"/cases/{job_id}/slice/{{index}}?view=pred_pet"
+    )
+    assert result_data["real_pet"]["slice_endpoint_template"] is None
+
+    ct_volume_response = client.get(result_data["ct"]["nifti_path"])
+    assert ct_volume_response.status_code == 200
+    assert len(ct_volume_response.content) > 0
+
+    pred_volume_response = client.get(result_data["predicted_pet"]["nifti_path"])
+    assert pred_volume_response.status_code == 200
+    assert len(pred_volume_response.content) > 0
+
+
+@pytest.mark.parametrize("endpoint", ["status", "result"])
+def test_study_endpoints_return_404_for_missing_study(client, endpoint):
+    response = client.get(f"/studies/missing-study-id/{endpoint}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Study not found"
+
+
+def test_dicom_zip_upload_succeeds(client, dicom_zip_bytes):
+    response = client.post(
+        "/upload",
+        files={"ct_file": ("ct-study.zip", dicom_zip_bytes, "application/zip")},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["source_type"] == "dicom_zip"
+    assert data["has_real_pet"] is False
+    assert data["num_slices"] == 4
+
+    job_id = data["job_id"]
+    assert job_id in study_manifests
+    manifest = study_manifests[job_id]
+    assert manifest.source_type == "dicom_zip"
+    assert manifest.upload_mode == "inference_only"
+    assert manifest.ct_volume_path.endswith("ct.nii.gz")
+    assert manifest.pred_pet_volume_path.endswith("pred_pet.nii.gz")
+    assert manifest.geometry is not None
+    assert manifest.geometry["ct"]["shape"] == [16, 16, 4]
+    assert "spacing_xyz_mm" in manifest.geometry["ct"]
+
+    ct_img = cast(Nifti1Image, load(manifest.ct_volume_path))
+    assert ct_img.affine is not None
+    saved_spacing = np.linalg.norm(ct_img.affine[:3, :3], axis=0)
+    ct_geom = manifest.geometry["ct"]
+    assert np.allclose(
+        saved_spacing,
+        [
+            ct_geom["spacing_xyz_mm"][1],
+            ct_geom["spacing_xyz_mm"][0],
+            ct_geom["slice_spacing_mm"],
+        ],
+        atol=1e-3,
+    )
+
+
+def test_study_endpoints_allow_lookup_by_manifest_study_id(client, dicom_zip_bytes):
+    response = client.post(
+        "/upload",
+        files={"ct_file": ("ct-study.zip", dicom_zip_bytes, "application/zip")},
+    )
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
+
+    manifest = study_manifests[job_id]
+    assert manifest.study_id is not None
+
+    status_response = client.get(f"/studies/{manifest.study_id}/status")
+    assert status_response.status_code == 200, status_response.text
+    status_data = status_response.json()
+    assert status_data["study_id"] == manifest.study_id
+    assert status_data["job_id"] == job_id
+
+    result_response = client.get(f"/studies/{manifest.study_id}/result")
+    assert result_response.status_code == 200, result_response.text
+    result_data = result_response.json()
+    assert result_data["study_id"] == manifest.study_id
+    assert result_data["job_id"] == job_id
+
+
+def test_case_meta_handles_missing_optional_tags(
+    client, dicom_zip_missing_patient_tags
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": (
+                "ct-study.zip",
+                dicom_zip_missing_patient_tags,
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
+
+    meta_response = client.get(f"/cases/{job_id}/meta")
+    assert meta_response.status_code == 200, meta_response.text
+    meta_data = meta_response.json()
+    assert meta_data["success"] is True
+    assert meta_data["source_type"] == "dicom_zip"
+    assert meta_data["upload_mode"] == "inference_only"
+    assert meta_data["modality"] == "CT"
+    assert meta_data["processing_status"] == "completed"
+    assert meta_data["spacing_xyz_mm"] is not None
+    assert len(meta_data["spacing_xyz_mm"]) == 3
+    assert meta_data["slice_spacing_mm"] is not None
+    assert meta_data["patient_id"] is None
+    assert meta_data["patient_name"] is None
+    assert meta_data["study_id"] is None
+    assert meta_data["study_date"] is None
+
+
+def test_dicom_directory_upload_succeeds_with_repeated_parts(
+    client, dicom_directory_upload_parts
+):
+    response = client.post("/upload", files=dicom_directory_upload_parts)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["source_type"] == "dicom_dir"
+    assert data["has_real_pet"] is False
+    assert data["num_slices"] == 4
+
+    job_id = data["job_id"]
+    manifest = study_manifests[job_id]
+    assert manifest.source_type == "dicom_dir"
+    assert manifest.upload_mode == "inference_only"
+    assert manifest.ct_volume_path.endswith("ct.nii.gz")
+
+
+def test_multi_series_dicom_rejected(client, multi_series_dicom_zip_bytes):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": (
+                "multi-series.zip",
+                multi_series_dicom_zip_bytes,
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    detail = response.json().get("detail", "")
+    assert "multi-series" in detail.lower()
+
+
+def test_upload_real_pet_alignment_metadata_recorded(
+    client, minimal_nifti_gz_bytes, mismatched_spacing_pet_bytes
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": (
+                "ct.nii.gz",
+                minimal_nifti_gz_bytes,
+                "application/octet-stream",
+            ),
+            "real_pet_file": (
+                "pet.nii.gz",
+                mismatched_spacing_pet_bytes,
+                "application/octet-stream",
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
+    manifest = study_manifests[job_id]
+    assert manifest.real_pet_volume_path is not None
+    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
+    assert manifest.geometry is not None
+    assert manifest.geometry["reference_pet"]["alignment"]["status"] in {
+        "already_aligned",
+        "resampled",
+    }
+
+
+def test_upload_rejects_incompatible_real_pet_geometry(
+    client, minimal_nifti_gz_bytes, tiny_pet_bytes
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": (
+                "ct.nii.gz",
+                minimal_nifti_gz_bytes,
+                "application/octet-stream",
+            ),
+            "real_pet_file": (
+                "pet_tiny.nii.gz",
+                tiny_pet_bytes,
+                "application/octet-stream",
+            ),
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    detail = response.json().get("detail", "")
+    assert "geometry incompatible" in detail.lower()
 
 
 # ====== NEW MANIFEST CONTRACT TESTS ======
@@ -317,6 +781,10 @@ def test_study_manifest_has_metrics_state():
     assert manifest.metrics.inference_time_ms is None
     assert manifest.metrics.output_shape is None
     assert manifest.metrics.slices_processed is None
+    assert manifest.metrics.psnr is None
+    assert manifest.metrics.ssim is None
+    assert manifest.metrics.evaluation_status is None
+    assert manifest.metrics.evaluation_reason is None
 
 
 def test_study_manifest_supports_evaluation_mode():
@@ -345,7 +813,7 @@ def test_study_manifest_missing_required_field_fails():
     Test that StudyManifest validation fails when required fields are missing.
     This is a negative test for malformed manifest state.
     """
-    incomplete_data = {
+    incomplete_data: dict[str, Any] = {
         "job_id": "test-job-005",
         # Missing: source_type, upload_mode, ct_volume_path, pred_pet_volume_path, num_slices, shape
         "ct_volume_path": "/uploads/test-job-005/ct.nii.gz",
