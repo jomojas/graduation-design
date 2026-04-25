@@ -18,8 +18,27 @@ vi.mock('axios', () => ({
 }))
 
 import CTUpload from './CTUpload'
+import { LanguageProvider } from '../i18n/LanguageProvider'
+import { LANGUAGE_STORAGE_KEY } from '../i18n'
 
 const mockedAxios = axios as Mocked<AxiosStatic>
+
+const renderUpload = () => {
+  return render(
+    <LanguageProvider>
+      <CTUpload />
+    </LanguageProvider>
+  )
+}
+
+const getUploadInput = (testId: string) => {
+  const wrapper = screen.getByTestId(testId)
+  const input = wrapper.querySelector('input[type="file"]')
+  if (!input) {
+    throw new Error(`Upload input not found for ${testId}`)
+  }
+  return input as HTMLInputElement
+}
 
 const mockCaseMeta = {
   job_id: 'job-123',
@@ -73,6 +92,8 @@ const buildResultResponse = (data: typeof mockCaseMeta | typeof mockCaseMetaWith
 })
 
 beforeEach(() => {
+  localStorage.clear()
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, 'zh-CN')
   mockedAxios.get.mockClear()
   mockedAxios.post.mockClear()
   mockedAxios.get.mockImplementation((url?: string) => {
@@ -86,23 +107,23 @@ beforeEach(() => {
 
 describe('CTUpload', () => {
   it('shows empty workspace and disabled run button by default', () => {
-    render(<CTUpload />)
-    expect(screen.getByText('Submit a study to start')).toBeInTheDocument()
+    renderUpload()
+    expect(screen.getByText('请先提交一组数据以开始')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'NIfTI' })).toBeChecked()
-    expect(screen.getByRole('button', { name: 'Run 2.5D Inference' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeDisabled()
   })
 
   it('submits NIfTI studies and renders case metadata', async () => {
-    render(<CTUpload />)
-    const ctInput = screen.getByTestId('ct-nifti-input')
+    renderUpload()
+    const ctInput = getUploadInput('ct-nifti-input')
     const ctFile = new File(['dummy'], 'scan.nii', { type: 'application/octet-stream' })
     fireEvent.change(ctInput, { target: { files: [ctFile] } })
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Run 2.5D Inference' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
 
     await waitFor(() => {
       expect(mockedAxios.post).toHaveBeenCalled()
@@ -112,35 +133,35 @@ describe('CTUpload', () => {
     expect(payload.get('ct_file')).toBe(ctFile)
 
     await waitFor(() => {
-      expect(screen.getByText('Slices: 3 | Shape: 128 x 128 x 64')).toBeInTheDocument()
+      expect(screen.getByText('切片数: 3 | 形状: 128 x 128 x 64')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('CT Volume')).toBeInTheDocument()
-    expect(screen.getByText('Predicted PET Fusion')).toBeInTheDocument()
-    expect(screen.queryByText('Real PET Reference')).not.toBeInTheDocument()
-    expect(screen.getByText('Fusion Controls')).toBeInTheDocument()
-    expect(screen.getByText('Metrics')).toBeInTheDocument()
-    expect(screen.getByText('PET colormap')).toBeInTheDocument()
-    expect(screen.getByText(/Fusion opacity:/)).toBeInTheDocument()
-    expect(screen.getByText('Evaluation: skipped (reference_missing)')).toBeInTheDocument()
-    expect(screen.getAllByText('N/A')).toHaveLength(2)
+    expect(screen.getByText('CT 体数据')).toBeInTheDocument()
+    expect(screen.getByText('预测 PET 融合图')).toBeInTheDocument()
+    expect(screen.queryByText('真实 PET 参考')).not.toBeInTheDocument()
+    expect(screen.getByText('融合控制')).toBeInTheDocument()
+    expect(screen.getByText('指标')).toBeInTheDocument()
+    expect(screen.getByText('PET 伪彩')).toBeInTheDocument()
+    expect(screen.getByText(/融合透明度:/)).toBeInTheDocument()
+    expect(screen.getByText('评估结果: skipped (reference_missing)')).toBeInTheDocument()
+    expect(screen.getAllByText('无')).toHaveLength(2)
     expect(screen.queryByText('0.000')).not.toBeInTheDocument()
     expect(screen.queryByText('0.0000')).not.toBeInTheDocument()
   })
 
   it('submits zipped DICOM using ct_file payload', async () => {
-    render(<CTUpload />)
+    renderUpload()
     fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
 
-    const zipInput = screen.getByTestId('dicom-zip-input')
+    const zipInput = getUploadInput('dicom-zip-input')
     const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
     fireEvent.change(zipInput, { target: { files: [zipFile] } })
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Run 2.5D Inference' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
 
     await waitFor(() => {
       expect(mockedAxios.post).toHaveBeenCalled()
@@ -152,10 +173,10 @@ describe('CTUpload', () => {
   })
 
   it('submits browser directory DICOM as repeated dicom_files', async () => {
-    render(<CTUpload />)
-    fireEvent.click(screen.getByRole('radio', { name: 'Directory DICOM' }))
+    renderUpload()
+    fireEvent.click(screen.getByRole('radio', { name: '目录 DICOM' }))
 
-    const directoryInput = screen.getByTestId('dicom-dir-input')
+    const directoryInput = getUploadInput('dicom-dir-input')
     const dicom1 = new File(['a'], '1.dcm', { type: 'application/dicom' })
     const dicom2 = new File(['b'], '2.dcm', { type: 'application/dicom' })
     Object.defineProperty(dicom1, 'webkitRelativePath', { value: 'study/1.dcm' })
@@ -163,10 +184,10 @@ describe('CTUpload', () => {
     fireEvent.change(directoryInput, { target: { files: [dicom1, dicom2] } })
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Run 2.5D Inference' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
 
     await waitFor(() => {
       expect(mockedAxios.post).toHaveBeenCalled()
@@ -187,13 +208,18 @@ describe('CTUpload', () => {
         },
       },
     })
-    render(<CTUpload />)
+    renderUpload()
     fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
 
-    const zipInput = screen.getByTestId('dicom-zip-input')
+    const zipInput = getUploadInput('dicom-zip-input')
     const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
     fireEvent.change(zipInput, { target: { files: [zipFile] } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
 
     expect(await screen.findByText('Invalid DICOM ZIP archive')).toBeInTheDocument()
   })
@@ -214,27 +240,31 @@ describe('CTUpload', () => {
       return Promise.resolve({})
     })
 
-    render(<CTUpload />)
-    const ctInput = screen.getByTestId('ct-nifti-input')
+    renderUpload()
+    const ctInput = getUploadInput('ct-nifti-input')
     const ctFile = new File(['dummy'], 'scan.nii', { type: 'application/octet-stream' })
     fireEvent.change(ctInput, { target: { files: [ctFile] } })
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Run 2.5D Inference' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
-    expect(screen.getByText('Upload payload')).toBeInTheDocument()
-    expect(screen.getByText('Run inference')).toBeInTheDocument()
-    expect(screen.getByText('Prepare results')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
+    expect(screen.getAllByText('上传数据').length).toBeGreaterThan(0)
+    expect(screen.getByText('执行推理')).toBeInTheDocument()
+    expect(screen.getByText('准备结果')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(mockedAxios.post).toHaveBeenCalled()
+    })
 
     resolvePost({ data: mockCaseMetaWithPet })
 
     await waitFor(() => {
-      expect(screen.getByText('Slices: 4 | Shape: 64 x 64 x 32')).toBeInTheDocument()
+      expect(screen.getByText('切片数: 4 | 形状: 64 x 64 x 32')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Real PET Reference')).toBeInTheDocument()
+    expect(screen.getByText('真实 PET 参考')).toBeInTheDocument()
   })
 
   it('hides metrics card when all metrics values are missing', async () => {
@@ -258,17 +288,22 @@ describe('CTUpload', () => {
       return Promise.resolve({})
     })
 
-    render(<CTUpload />)
-    const ctInput = screen.getByTestId('ct-nifti-input')
+    renderUpload()
+    const ctInput = getUploadInput('ct-nifti-input')
     const ctFile = new File(['dummy'], 'scan.nii', { type: 'application/octet-stream' })
     fireEvent.change(ctInput, { target: { files: [ctFile] } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Predicted PET Fusion')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
     })
 
-    expect(screen.queryByText('Metrics')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('预测 PET 融合图')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('指标')).not.toBeInTheDocument()
   })
 
   it('renders workspace from nifti_path without legacy slice templates', async () => {
@@ -296,14 +331,19 @@ describe('CTUpload', () => {
       return Promise.resolve({})
     })
 
-    render(<CTUpload />)
-    const ctInput = screen.getByTestId('ct-nifti-input')
+    renderUpload()
+    const ctInput = getUploadInput('ct-nifti-input')
     const ctFile = new File(['dummy'], 'scan.nii', { type: 'application/octet-stream' })
     fireEvent.change(ctInput, { target: { files: [ctFile] } })
-    fireEvent.click(screen.getByRole('button', { name: 'Run 2.5D Inference' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Predicted PET Fusion')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('预测 PET 融合图')).toBeInTheDocument()
     })
 
     const viewers = screen.getAllByTestId('mock-niivue-viewer')

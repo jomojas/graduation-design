@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
+import { Steps, Upload } from 'antd'
+import { CheckCircleOutlined, CloudUploadOutlined, ExperimentOutlined } from '@ant-design/icons'
+import type { UploadFile, UploadProps } from 'antd'
 import NiivueVolumeViewer, { type NiivueVolumeViewerProps } from './NiivueVolumeViewer'
 import type { NiivueViewerLike } from '../hooks/useNiivueViewer'
+import { useLanguage } from '../i18n/LanguageProvider'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -49,19 +53,24 @@ const MAX_MB = 200
 
 const fileSizeOk = (file: File) => file.size / 1024 / 1024 <= MAX_MB
 
-const formatMetric = (value: number | null, precision: number) => {
+const formatMetric = (value: number | null, precision: number, fallback: string) => {
   if (value === null || value === undefined) {
-    return 'N/A'
+    return fallback
   }
   return value.toFixed(precision)
 }
 
 const CTUpload: React.FC = () => {
+  const { t } = useLanguage()
   const [uploadMode, setUploadMode] = useState<UploadMode>('nifti')
   const [niftiCtFile, setNiftiCtFile] = useState<File | null>(null)
   const [realPetFile, setRealPetFile] = useState<File | null>(null)
   const [dicomZipFile, setDicomZipFile] = useState<File | null>(null)
   const [dicomDirFiles, setDicomDirFiles] = useState<File[]>([])
+  const [niftiCtUploadList, setNiftiCtUploadList] = useState<UploadFile[]>([])
+  const [realPetUploadList, setRealPetUploadList] = useState<UploadFile[]>([])
+  const [dicomZipUploadList, setDicomZipUploadList] = useState<UploadFile[]>([])
+  const [dicomDirUploadList, setDicomDirUploadList] = useState<UploadFile[]>([])
   const [backendStatus, setBackendStatus] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadStage, setUploadStage] = useState<UploadStage>('idle')
@@ -132,10 +141,10 @@ const CTUpload: React.FC = () => {
         return maybeAxiosError.response.data
       }
       if (maybeAxiosError.response?.status) {
-        return `Request failed with status ${maybeAxiosError.response.status}`
+        return t('requestFailedWithStatus', maybeAxiosError.response.status)
       }
     }
-    return 'Upload or inference failed'
+    return t('uploadOrInferenceFailed')
   }
 
   const runDisabled = useMemo(() => {
@@ -147,6 +156,8 @@ const CTUpload: React.FC = () => {
     }
     return dicomDirFiles.length === 0
   }, [dicomDirFiles.length, dicomZipFile, niftiCtFile, uploadMode])
+
+  const hasPayloadSelected = !runDisabled
 
   const stageStep = useMemo(() => {
     if (uploadStage === 'uploading') {
@@ -228,29 +239,34 @@ const CTUpload: React.FC = () => {
     ].some((value) => value !== null && value !== undefined)
   }, [activeResult?.metrics])
 
-  const metadataShape = activeResult?.shape ?? caseMeta?.shape
-  const metadataSlices = activeResult?.num_slices ?? caseMeta?.num_slices
-  const metadataStudyId = activeResult?.study_id ?? caseMeta?.study_id ?? null
-  const metadataJobId = activeResult?.job_id ?? caseMeta?.job_id ?? null
-  const metadataSource = caseMeta?.source_type ?? 'nifti'
-  const metadataHasRealPet = activeResult?.has_real_pet ?? caseMeta?.has_real_pet ?? false
-
   const metricsTone = activeResult?.metrics?.evaluation_status === 'failed' ? 'warning' : 'success'
   const processingHeadline = uploading
-    ? 'Study pipeline is running'
+    ? t('processingRunningHeadline')
     : uploadError
-      ? 'Last run failed'
+      ? t('processingFailedHeadline')
       : activeResult
-        ? 'Last run completed'
-        : 'No processing started yet'
+        ? t('processingCompletedHeadline')
+        : hasPayloadSelected
+          ? t('processingPayloadReadyHeadline')
+          : t('processingIdleHeadline')
   const processingMessage = uploading
-    ? 'Upload, inference, and workspace rendering are in progress.'
+    ? t('processingRunningMessage')
     : uploadError
-      ? 'Inspect the upload failure panel for backend details and retry the study.'
+      ? t('processingFailedMessage')
       : activeResult
-        ? 'Outputs are ready for synchronized review.'
-        : 'Submit a study to populate state cards and metrics.'
-  const processingTone = uploadError ? 'error' : activeResult ? 'success' : uploading ? 'info' : 'warning'
+        ? t('processingCompletedMessage')
+        : hasPayloadSelected
+          ? t('processingPayloadReadyMessage')
+          : t('processingIdleMessage')
+  const processingTone = uploadError ? 'error' : activeResult ? 'success' : uploading || hasPayloadSelected ? 'info' : 'warning'
+  const processingStepsCurrent = activeResult ? 2 : stageStep >= 0 ? stageStep : 0
+  const processingStepsStatus: 'wait' | 'process' | 'finish' | 'error' = uploadError
+    ? 'error'
+    : activeResult
+      ? 'finish'
+      : stageStep >= 0 || hasPayloadSelected
+        ? 'process'
+        : 'wait'
 
   const ctSyncPeers = useMemo(() => {
     const peers = [predViewer, realViewer]
@@ -295,10 +311,10 @@ const CTUpload: React.FC = () => {
     const lower = file.name.toLowerCase()
     const isNifti = lower.endsWith('.nii') || lower.endsWith('.nii.gz')
     if (!isNifti) {
-      return 'Only .nii or .nii.gz files are supported'
+      return t('niftiOnly')
     }
     if (!fileSizeOk(file)) {
-      return 'File size must be <= 200MB'
+      return t('fileMax200mb')
     }
     return null
   }
@@ -306,10 +322,10 @@ const CTUpload: React.FC = () => {
   const validateZipFile = (file: File) => {
     const lower = file.name.toLowerCase()
     if (!lower.endsWith('.zip')) {
-      return 'Only .zip archives are supported in zipped DICOM mode'
+      return t('zipOnly')
     }
     if (!fileSizeOk(file)) {
-      return 'ZIP file size must be <= 200MB'
+      return t('zipMax200mb')
     }
     return null
   }
@@ -317,22 +333,117 @@ const CTUpload: React.FC = () => {
   const validateDicomDirectoryFiles = (files: File[]) => {
     const tooLarge = files.find((file) => !fileSizeOk(file))
     if (tooLarge) {
-      return 'Each directory file must be <= 200MB'
+      return t('eachDirFileMax200mb')
     }
     return null
   }
 
+  const toBrowserFiles = (fileList: UploadFile[]): File[] => {
+    return fileList.reduce<File[]>((files, item) => {
+      if (item.originFileObj) {
+        files.push(item.originFileObj as File)
+      }
+      return files
+    }, [])
+  }
+
+  const normalizeSingleUploadList = (fileList: UploadFile[]) => {
+    if (fileList.length === 0) {
+      return []
+    }
+    return [fileList[fileList.length - 1]]
+  }
+
+  const handleNiftiCtUploadChange: UploadProps['onChange'] = ({ fileList }) => {
+    const nextList = normalizeSingleUploadList(fileList)
+    const file = toBrowserFiles(nextList)[0] ?? null
+    if (!file) {
+      setNiftiCtFile(null)
+      setNiftiCtUploadList([])
+      return
+    }
+    const error = validateNiftiFile(file)
+    if (error) {
+      setUploadError(error)
+      setNiftiCtFile(null)
+      setNiftiCtUploadList([])
+      return
+    }
+    setUploadError(null)
+    setNiftiCtFile(file)
+    setNiftiCtUploadList(nextList)
+  }
+
+  const handleRealPetUploadChange: UploadProps['onChange'] = ({ fileList }) => {
+    const nextList = normalizeSingleUploadList(fileList)
+    const file = toBrowserFiles(nextList)[0] ?? null
+    if (!file) {
+      setRealPetFile(null)
+      setRealPetUploadList([])
+      return
+    }
+    const error = validateNiftiFile(file)
+    if (error) {
+      setUploadError(error)
+      setRealPetFile(null)
+      setRealPetUploadList([])
+      return
+    }
+    setUploadError(null)
+    setRealPetFile(file)
+    setRealPetUploadList(nextList)
+  }
+
+  const handleDicomZipUploadChange: UploadProps['onChange'] = ({ fileList }) => {
+    const nextList = normalizeSingleUploadList(fileList)
+    const file = toBrowserFiles(nextList)[0] ?? null
+    if (!file) {
+      setDicomZipFile(null)
+      setDicomZipUploadList([])
+      return
+    }
+    const error = validateZipFile(file)
+    if (error) {
+      setUploadError(error)
+      setDicomZipFile(null)
+      setDicomZipUploadList([])
+      return
+    }
+    setUploadError(null)
+    setDicomZipFile(file)
+    setDicomZipUploadList(nextList)
+  }
+
+  const handleDicomDirUploadChange: UploadProps['onChange'] = ({ fileList }) => {
+    const files = toBrowserFiles(fileList)
+    if (files.length === 0) {
+      setDicomDirFiles([])
+      setDicomDirUploadList([])
+      return
+    }
+    const error = validateDicomDirectoryFiles(files)
+    if (error) {
+      setUploadError(error)
+      setDicomDirFiles([])
+      setDicomDirUploadList([])
+      return
+    }
+    setUploadError(null)
+    setDicomDirFiles(files)
+    setDicomDirUploadList(fileList)
+  }
+
   const handleUploadAndInfer = async () => {
     if (uploadMode === 'nifti' && !niftiCtFile) {
-      setUploadError('Please upload a CT NIfTI file')
+      setUploadError(t('uploadCtRequired'))
       return
     }
     if (uploadMode === 'dicom_zip' && !dicomZipFile) {
-      setUploadError('Please upload a DICOM ZIP file')
+      setUploadError(t('uploadZipRequired'))
       return
     }
     if (uploadMode === 'dicom_dir' && dicomDirFiles.length === 0) {
-      setUploadError('Please choose a DICOM directory')
+      setUploadError(t('uploadDirRequired'))
       return
     }
 
@@ -387,6 +498,10 @@ const CTUpload: React.FC = () => {
     setRealPetFile(null)
     setDicomZipFile(null)
     setDicomDirFiles([])
+    setNiftiCtUploadList([])
+    setRealPetUploadList([])
+    setDicomZipUploadList([])
+    setDicomDirUploadList([])
     setUploadError(null)
     setUploadStage('idle')
     setCaseMeta(null)
@@ -400,20 +515,23 @@ const CTUpload: React.FC = () => {
     <div className="medical-dashboard-grid">
       <aside className="medical-sidebar-stack">
         <section className="medical-panel">
-          <h2 className="medical-panel-title">Backend Status</h2>
-          <div className="medical-inline-cluster">
+          <div className="medical-panel-toolbar">
+            <h2 className="medical-panel-title">{t('panelUploadTitle')}</h2>
             <span className={`medical-status-pill medical-status-${backendStatus ? 'online' : 'offline'}`}>
-              {backendStatus === null ? 'Checking...' : backendStatus ? 'Online' : 'Offline'}
+              {backendStatus === null ? t('backendChecking') : backendStatus ? t('backendOnline') : t('backendOffline')}
             </span>
+          </div>
+
+          <div className="medical-inline-cluster medical-inline-cluster-compact">
+            <span className="medical-section-label">{t('backendStatus')}</span>
             <button type="button" className="medical-button medical-button-ghost" onClick={checkBackendStatus}>
-              Refresh
+              {t('refresh')}
             </button>
           </div>
-        </section>
 
-        <section className="medical-panel">
-          <h2 className="medical-panel-title">Upload Volumes</h2>
-          <p style={{ marginBottom: 8 }}>Submission mode</p>
+          <div className="medical-panel-divider" />
+
+          <p className="medical-section-label">{t('submissionMode')}</p>
 
           <fieldset className="medical-radio-group">
             <label className="medical-radio-option">
@@ -427,7 +545,7 @@ const CTUpload: React.FC = () => {
                   setUploadError(null)
                 }}
               />
-              <span>NIfTI</span>
+              <span>{t('modeNifti')}</span>
             </label>
             <label className="medical-radio-option">
               <input
@@ -440,7 +558,7 @@ const CTUpload: React.FC = () => {
                   setUploadError(null)
                 }}
               />
-              <span>ZIP DICOM</span>
+              <span>{t('modeZipDicom')}</span>
             </label>
             <label className="medical-radio-option">
               <input
@@ -453,126 +571,120 @@ const CTUpload: React.FC = () => {
                   setUploadError(null)
                 }}
               />
-              <span>Directory DICOM</span>
+              <span>{t('modeDirDicom')}</span>
             </label>
           </fieldset>
 
           {uploadMode === 'nifti' && (
             <>
               <label className="medical-file-control">
-                <span>CT NIfTI (required)</span>
-                <input
-                  data-testid="ct-nifti-input"
-                  type="file"
-                  accept=".nii,.nii.gz"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    if (!file) {
+                <span>{t('ctNiftiRequired')}</span>
+                <div data-testid="ct-nifti-input">
+                  <Upload
+                    fileList={niftiCtUploadList}
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleNiftiCtUploadChange}
+                    onRemove={() => {
                       setNiftiCtFile(null)
-                      return
-                    }
-                    const error = validateNiftiFile(file)
-                    if (error) {
-                      setUploadError(error)
-                      setNiftiCtFile(null)
-                      return
-                    }
-                    setUploadError(null)
-                    setNiftiCtFile(file)
-                  }}
-                />
-                <small>{niftiCtFile ? niftiCtFile.name : 'No file selected'}</small>
+                      setNiftiCtUploadList([])
+                      return true
+                    }}
+                    accept=".nii,.nii.gz"
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFile')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>{niftiCtFile ? niftiCtFile.name : t('noFileSelected')}</small>
               </label>
 
               <label className="medical-file-control">
-                <span>Real PET NIfTI (optional)</span>
-                <input
-                  data-testid="real-pet-input"
-                  type="file"
-                  accept=".nii,.nii.gz"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    if (!file) {
+                <span>{t('realPetOptional')}</span>
+                <div data-testid="real-pet-input">
+                  <Upload
+                    fileList={realPetUploadList}
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleRealPetUploadChange}
+                    onRemove={() => {
                       setRealPetFile(null)
-                      return
-                    }
-                    const error = validateNiftiFile(file)
-                    if (error) {
-                      setUploadError(error)
-                      setRealPetFile(null)
-                      return
-                    }
-                    setUploadError(null)
-                    setRealPetFile(file)
-                  }}
-                />
-                <small>{realPetFile ? realPetFile.name : 'No file selected'}</small>
+                      setRealPetUploadList([])
+                      return true
+                    }}
+                    accept=".nii,.nii.gz"
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFile')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>{realPetFile ? realPetFile.name : t('noFileSelected')}</small>
               </label>
             </>
           )}
 
           {uploadMode === 'dicom_zip' && (
             <label className="medical-file-control">
-              <span>DICOM ZIP (required)</span>
-              <input
-                data-testid="dicom-zip-input"
-                type="file"
-                accept=".zip"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null
-                  if (!file) {
+              <span>{t('dicomZipRequired')}</span>
+              <div data-testid="dicom-zip-input">
+                <Upload
+                  fileList={dicomZipUploadList}
+                  maxCount={1}
+                  showUploadList={false}
+                  beforeUpload={() => false}
+                  onChange={handleDicomZipUploadChange}
+                  onRemove={() => {
                     setDicomZipFile(null)
-                    return
-                  }
-                  const error = validateZipFile(file)
-                  if (error) {
-                    setUploadError(error)
-                    setDicomZipFile(null)
-                    return
-                  }
-                  setUploadError(null)
-                  setDicomZipFile(file)
-                }}
-              />
-              <small>{dicomZipFile ? dicomZipFile.name : 'No file selected'}</small>
+                    setDicomZipUploadList([])
+                    return true
+                  }}
+                  accept=".zip"
+                >
+                  <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                    {t('chooseFile')}
+                  </button>
+                </Upload>
+              </div>
+              <small>{dicomZipFile ? dicomZipFile.name : t('noFileSelected')}</small>
             </label>
           )}
 
           {uploadMode === 'dicom_dir' && (
             <label className="medical-file-control">
-              <span>DICOM directory (required)</span>
-              <input
-                data-testid="dicom-dir-input"
-                type="file"
-                multiple
-                {...({ webkitdirectory: 'true', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? [])
-                  if (files.length === 0) {
-                    setDicomDirFiles([])
-                    return
-                  }
-                  const error = validateDicomDirectoryFiles(files)
-                  if (error) {
-                    setUploadError(error)
-                    setDicomDirFiles([])
-                    return
-                  }
-                  setUploadError(null)
-                  setDicomDirFiles(files)
-                }}
-              />
+              <span>{t('dicomDirRequired')}</span>
+              <div data-testid="dicom-dir-input">
+                <Upload
+                  fileList={dicomDirUploadList}
+                  showUploadList={false}
+                  beforeUpload={() => false}
+                  onChange={handleDicomDirUploadChange}
+                  onRemove={(file) => {
+                    const nextList = dicomDirUploadList.filter((item) => item.uid !== file.uid)
+                    setDicomDirUploadList(nextList)
+                    setDicomDirFiles(toBrowserFiles(nextList))
+                    return true
+                  }}
+                  directory
+                  multiple
+                >
+                  <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                    {t('chooseFolder')}
+                  </button>
+                </Upload>
+              </div>
               <small>
-                {dicomDirFiles.length > 0
-                  ? `${dicomDirFiles.length} files ready for upload`
-                  : 'Choose a folder containing DICOM slices'}
+                {dicomDirFiles.length > 0 ? t('dicomFilesReady', dicomDirFiles.length) : t('chooseDicomFolder')}
               </small>
             </label>
           )}
 
           {uploadError && (
-            <div className="medical-banner medical-banner-error" style={{ marginTop: 16 }}>
-              <div className="medical-banner-title">Upload failed</div>
+            <div className="medical-banner medical-banner-error medical-banner-spaced">
+              <div className="medical-banner-title">{t('uploadFailed')}</div>
               <div>{uploadError}</div>
             </div>
           )}
@@ -584,7 +696,7 @@ const CTUpload: React.FC = () => {
               onClick={handleUploadAndInfer}
               disabled={runDisabled || uploading}
             >
-              {uploading ? 'Running...' : 'Run 2.5D Inference'}
+              {uploading ? t('running') : t('runInference')}
             </button>
             <button
               type="button"
@@ -592,168 +704,81 @@ const CTUpload: React.FC = () => {
               onClick={handleReset}
               disabled={uploading}
             >
-              Reset
+              {t('reset')}
             </button>
-          </div>
-        </section>
-
-        <section className="medical-panel">
-          <h2 className="medical-panel-title">Processing State</h2>
-          <div className={`medical-banner medical-banner-${processingTone}`}>
-            <div className="medical-banner-title">{processingHeadline}</div>
-            <div>{processingMessage}</div>
-          </div>
-          <ol className="medical-steps-list">
-            {['Upload payload', 'Run inference', 'Prepare results'].map((title, index) => {
-              const status = stageStep >= index ? 'done' : stageStep === index - 1 ? 'active' : 'todo'
-              return (
-                <li key={title} className={`medical-step-item medical-step-${status}`}>
-                  <span className="medical-step-index">{index + 1}</span>
-                  <span>{title}</span>
-                </li>
-              )
-            })}
-          </ol>
-        </section>
-
-        <section className="medical-panel">
-          <h2 className="medical-panel-title">Study Metadata</h2>
-          <div className="medical-meta-grid">
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Study ID</div>
-              <div className="medical-meta-value">{metadataStudyId ?? 'Pending submission'}</div>
-            </div>
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Job ID</div>
-              <div className="medical-meta-value">{metadataJobId ?? 'Pending submission'}</div>
-            </div>
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Source</div>
-              <div className="medical-meta-value">{metadataSource}</div>
-            </div>
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Slices</div>
-              <div className="medical-meta-value">{metadataSlices ?? 'N/A'}</div>
-            </div>
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Volume Shape</div>
-              <div className="medical-meta-value">
-                {metadataShape && metadataShape.length > 0 ? metadataShape.join(' x ') : 'N/A'}
-              </div>
-            </div>
-            <div className="medical-meta-item">
-              <div className="medical-meta-label">Real PET</div>
-              <div className="medical-meta-value">{metadataHasRealPet ? 'Provided' : 'Not provided'}</div>
-            </div>
-          </div>
-        </section>
-
-        {hasMetrics && activeResult && (
-          <section className="medical-panel">
-            <h2 className="medical-panel-title">Metrics</h2>
-            <div className="medical-metrics-grid">
-              <div className="medical-metric-item">
-                <div className="medical-metric-label">Inference (ms)</div>
-                <div className="medical-metric-value">{formatMetric(activeResult.metrics.inference_time_ms, 1)}</div>
-              </div>
-              <div className="medical-metric-item">
-                <div className="medical-metric-label">Slices</div>
-                <div className="medical-metric-value">{activeResult.metrics.slices_processed ?? 'N/A'}</div>
-              </div>
-              <div className="medical-metric-item">
-                <div className="medical-metric-label">PSNR</div>
-                <div className="medical-metric-value">{formatMetric(activeResult.metrics.psnr, 3)}</div>
-              </div>
-              <div className="medical-metric-item">
-                <div className="medical-metric-label">SSIM</div>
-                <div className="medical-metric-value">{formatMetric(activeResult.metrics.ssim, 4)}</div>
-              </div>
-            </div>
-            {activeResult.metrics.evaluation_status && (
-              <div
-                className={`medical-banner ${
-                  activeResult.metrics.evaluation_status === 'failed'
-                    ? 'medical-banner-error'
-                    : 'medical-banner-info'
-                }`}
-                style={{ marginTop: 12 }}
-              >
-                <div>
-                  Evaluation: {activeResult.metrics.evaluation_status}
-                  {activeResult.metrics.evaluation_reason
-                    ? ` (${activeResult.metrics.evaluation_reason})`
-                    : ''}
-                </div>
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="medical-panel">
-          <h2 className="medical-panel-title">Mode Notes</h2>
-          <div className="medical-banner medical-banner-info">
-            <div className="medical-banner-title">Evaluation Mode</div>
-            <div>NIfTI mode supports optional Real PET. ZIP and directory DICOM modes run inference-only.</div>
-          </div>
-          <div style={{ marginTop: 12, color: '#5b6473' }}>
-            Backend `/upload` accepts ct_file (.nii/.nii.gz/.zip) or repeated dicom_files.
-          </div>
-          <div style={{ marginTop: 6, color: '#5b6473' }}>
-            PNG slice endpoints remain backend compatibility-only; the workspace renders from study result NIfTI paths.
           </div>
         </section>
       </aside>
 
       <section className="medical-main-stack">
+        <section className="medical-panel medical-processing-panel">
+          <div className="medical-processing-header">
+            <h2 className="medical-panel-title">{t('processingState')}</h2>
+            <span className={`medical-processing-pill medical-processing-pill-${processingTone}`}>{processingHeadline}</span>
+          </div>
+          <p className="medical-processing-summary">{processingMessage}</p>
+          <Steps
+            className="medical-steps-component"
+            current={processingStepsCurrent}
+            status={processingStepsStatus}
+            items={[
+              { title: t('stepUploadPayload'), icon: <CloudUploadOutlined /> },
+              { title: t('stepRunInference'), icon: <ExperimentOutlined /> },
+              { title: t('stepPrepareResults'), icon: <CheckCircleOutlined /> }
+            ]}
+          />
+        </section>
+
         <section className="medical-panel medical-workspace-panel">
           <div className="medical-workspace-header">
-            <h2 className="medical-panel-title">Synchronized Imaging Workspace</h2>
+            <h2 className="medical-panel-title">{t('workspaceTitle')}</h2>
             {activeResult && (
               <div className="medical-workspace-header-meta">
-                Slices: {activeResult.num_slices} | Shape: {activeResult.shape.join(' x ')}
+                {t('workspaceMeta', activeResult.num_slices, activeResult.shape.join(' x '))}
               </div>
             )}
           </div>
 
           {uploadError && (
-            <div className="medical-banner medical-banner-error" style={{ marginBottom: 16 }}>
-              <div className="medical-banner-title">Processing failed</div>
-              <div>Pipeline halted before viewer synchronization. Resolve the failure reason in the sidebar and retry.</div>
+            <div className="medical-banner medical-banner-error medical-banner-bottom-gap">
+              <div className="medical-banner-title">{t('processingFailed')}</div>
+              <div>{t('processingFailedDetail')}</div>
             </div>
           )}
 
           {activeResult && !uploadError && (
             <div
-              className={`medical-banner ${metricsTone === 'warning' ? 'medical-banner-warning' : 'medical-banner-success'}`}
-              style={{ marginBottom: 16 }}
+              className={`medical-banner ${
+                metricsTone === 'warning' ? 'medical-banner-warning' : 'medical-banner-success'
+              } medical-banner-bottom-gap`}
             >
-              <div className="medical-banner-title">Study workspace is ready</div>
-              <div>CT, predicted PET fusion, and optional reference PET are synchronized by slice index.</div>
+              <div className="medical-banner-title">{t('workspaceReady')}</div>
+              <div>{t('workspaceReadyDetail')}</div>
             </div>
           )}
 
           {!activeResult && (
             <div className="medical-workspace-empty-state">
               {uploading ? (
-                <div className="medical-loading-block" aria-label="Loading workspace">
+                <div className="medical-loading-block" aria-label={t('loadingWorkspace')}>
                   <div className="medical-loading-line" />
                   <div className="medical-loading-line" />
                   <div className="medical-loading-line" />
                 </div>
               ) : (
-                <div className="medical-empty-state">Submit a study to start</div>
-              )}
-            </div>
-          )}
+                  <div className="medical-empty-state">{t('emptyWorkspace')}</div>
+                )}
+              </div>
+            )}
 
           {activeResult && (
             <div>
-              <div className="medical-subpanel" style={{ marginBottom: 16 }}>
-                <h3 className="medical-subpanel-title">Fusion Controls</h3>
+              <div className="medical-subpanel medical-subpanel-spaced">
+                <h3 className="medical-subpanel-title">{t('fusionControls')}</h3>
                 <div className="medical-fusion-controls">
                   <div>
-                    <div style={{ marginBottom: 8, color: '#596273' }}>PET colormap</div>
-                    <div className="medical-toggle-group" role="group" aria-label="PET colormap">
+                    <div className="medical-control-label">{t('petColormap')}</div>
+                    <div className="medical-toggle-group" role="group" aria-label={t('petColormap')}>
                       <button
                         type="button"
                         className={`medical-toggle ${petColormap === 'hot' ? 'medical-toggle-active' : ''}`}
@@ -771,10 +796,11 @@ const CTUpload: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="fusion-opacity" style={{ marginBottom: 8, color: '#596273', display: 'block' }}>
-                      Fusion opacity: {fusionOpacity}%
+                    <label htmlFor="fusion-opacity" className="medical-control-label">
+                      {t('fusionOpacity', fusionOpacity)}
                     </label>
                     <input
+                      className="medical-range-input"
                       id="fusion-opacity"
                       type="range"
                       min={0}
@@ -788,7 +814,7 @@ const CTUpload: React.FC = () => {
 
               <div className={`medical-viewer-grid ${hasRealPet ? 'medical-viewer-grid-real' : ''}`}>
                 <article className="medical-subpanel">
-                  <h3 className="medical-subpanel-title">CT Volume</h3>
+                  <h3 className="medical-subpanel-title">{t('ctVolume')}</h3>
                   <div className="medical-viewer-frame">
                     <NiivueVolumeViewer
                       volumes={ctVolumes}
@@ -802,7 +828,7 @@ const CTUpload: React.FC = () => {
 
                 {hasRealPet && (
                   <article className="medical-subpanel">
-                    <h3 className="medical-subpanel-title">Real PET Reference</h3>
+                    <h3 className="medical-subpanel-title">{t('realPetReference')}</h3>
                     <div className="medical-viewer-frame">
                       <NiivueVolumeViewer
                         volumes={realPetVolumes}
@@ -816,7 +842,7 @@ const CTUpload: React.FC = () => {
                 )}
 
                 <article className="medical-subpanel">
-                  <h3 className="medical-subpanel-title">Predicted PET Fusion</h3>
+                  <h3 className="medical-subpanel-title">{t('predictedPetFusion')}</h3>
                   <div className="medical-viewer-frame">
                     <NiivueVolumeViewer
                       volumes={predictedFusionVolumes}
@@ -829,11 +855,12 @@ const CTUpload: React.FC = () => {
                 </article>
               </div>
 
-              <div style={{ marginTop: 20 }}>
-                <label htmlFor="slice-index" style={{ marginBottom: 8, color: '#596273', display: 'block' }}>
-                  Slice index: {sliceIndex}
+              <div className="medical-slice-control">
+                <label htmlFor="slice-index" className="medical-control-label">
+                  {t('sliceIndex', sliceIndex)}
                 </label>
                 <input
+                  className="medical-range-input"
                   id="slice-index"
                   type="range"
                   min={0}
@@ -845,6 +872,47 @@ const CTUpload: React.FC = () => {
             </div>
           )}
         </section>
+
+        {hasMetrics && activeResult && (
+          <section className="medical-panel">
+            <h2 className="medical-panel-title">{t('metrics')}</h2>
+            <div className="medical-metrics-grid">
+              <div className="medical-metric-item">
+                <div className="medical-metric-label">{t('inferenceMs')}</div>
+                <div className="medical-metric-value">{formatMetric(activeResult.metrics.inference_time_ms, 1, t('metricNotAvailable'))}</div>
+              </div>
+              <div className="medical-metric-item">
+                <div className="medical-metric-label">{t('slices')}</div>
+                <div className="medical-metric-value">{activeResult.metrics.slices_processed ?? t('metricNotAvailable')}</div>
+              </div>
+              <div className="medical-metric-item">
+                <div className="medical-metric-label">PSNR</div>
+                <div className="medical-metric-value">{formatMetric(activeResult.metrics.psnr, 3, t('metricNotAvailable'))}</div>
+              </div>
+              <div className="medical-metric-item">
+                <div className="medical-metric-label">SSIM</div>
+                <div className="medical-metric-value">{formatMetric(activeResult.metrics.ssim, 4, t('metricNotAvailable'))}</div>
+              </div>
+            </div>
+            {activeResult.metrics.evaluation_status && (
+              <div
+                className={`medical-banner ${
+                  activeResult.metrics.evaluation_status === 'failed'
+                    ? 'medical-banner-error'
+                    : 'medical-banner-info'
+                } medical-banner-tight`}
+              >
+                <div>
+                  {t(
+                    'evaluation',
+                    activeResult.metrics.evaluation_status,
+                    activeResult.metrics.evaluation_reason
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
       </section>
     </div>
   )
