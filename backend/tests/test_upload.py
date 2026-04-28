@@ -23,7 +23,12 @@ import pytest
 from nibabel.loadsave import load, save
 from nibabel.nifti1 import Nifti1Image
 from pydicom.dataset import FileDataset, FileMetaDataset
-from pydicom.uid import CTImageStorage, ExplicitVRLittleEndian, generate_uid
+from pydicom.uid import (
+    CTImageStorage,
+    ExplicitVRLittleEndian,
+    PositronEmissionTomographyImageStorage,
+    generate_uid,
+)
 from fastapi.testclient import TestClient
 
 import main
@@ -105,9 +110,15 @@ def _create_dicom_slice(
     instance_number: int,
     *,
     include_patient_tags: bool = True,
+    modality: str = "CT",
 ) -> bytes:
     file_meta = FileMetaDataset()
-    file_meta.MediaStorageSOPClassUID = CTImageStorage
+    modality_upper = modality.strip().upper()
+    file_meta.MediaStorageSOPClassUID = (
+        PositronEmissionTomographyImageStorage
+        if modality_upper == "PT"
+        else CTImageStorage
+    )
     file_meta.MediaStorageSOPInstanceUID = generate_uid()
     file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
     file_meta.ImplementationClassUID = generate_uid()
@@ -118,7 +129,7 @@ def _create_dicom_slice(
         file_meta=file_meta,
         preamble=b"\0" * 128,
     )
-    ds.Modality = "CT"
+    ds.Modality = modality_upper
     ds.SeriesInstanceUID = series_uid
     ds.StudyInstanceUID = generate_uid()
     ds.FrameOfReferenceUID = generate_uid()
@@ -206,6 +217,25 @@ def dicom_directory_upload_parts() -> list[tuple[str, tuple[str, bytes, str]]]:
                 "dicom_files",
                 (
                     f"study/subdir/slice_{index}.dcm",
+                    dicom_bytes,
+                    "application/dicom",
+                ),
+            )
+        )
+    return parts
+
+
+@pytest.fixture
+def pet_dicom_directory_upload_parts() -> list[tuple[str, tuple[str, bytes, str]]]:
+    series_uid = generate_uid()
+    parts: list[tuple[str, tuple[str, bytes, str]]] = []
+    for index, z in enumerate([0.0, 1.25, 2.5, 3.75], start=1):
+        dicom_bytes = _create_dicom_slice(series_uid, z, index, modality="PT")
+        parts.append(
+            (
+                "real_pet_dicom_files",
+                (
+                    f"pet/subdir/slice_{index}.dcm",
                     dicom_bytes,
                     "application/dicom",
                 ),
@@ -539,9 +569,37 @@ def test_dicom_zip_upload_succeeds(client, dicom_zip_bytes):
     assert manifest.geometry["ct"]["shape"] == [16, 16, 4]
     assert "spacing_xyz_mm" in manifest.geometry["ct"]
 
+
+def test_dicom_zip_upload_succeeds_with_optional_real_pet(
+    client, dicom_zip_bytes, minimal_nifti_gz_bytes
+):
+    response = client.post(
+        "/upload",
+        files={
+            "ct_file": ("ct-study.zip", dicom_zip_bytes, "application/zip"),
+            "real_pet_file": (
+                "pet.nii.gz",
+                minimal_nifti_gz_bytes,
+                "application/octet-stream",
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["source_type"] == "dicom_zip"
+    assert data["has_real_pet"] is True
+
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.real_pet_volume_path is not None
+    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
+    assert manifest.upload_mode == "with_evaluation"
+
     ct_img = cast(Nifti1Image, load(manifest.ct_volume_path))
     assert ct_img.affine is not None
     saved_spacing = np.linalg.norm(ct_img.affine[:3, :3], axis=0)
+    assert manifest.geometry is not None
     ct_geom = manifest.geometry["ct"]
     assert np.allclose(
         saved_spacing,
@@ -629,6 +687,58 @@ def test_dicom_directory_upload_succeeds_with_repeated_parts(
     assert manifest.source_type == "dicom_dir"
     assert manifest.upload_mode == "inference_only"
     assert manifest.ct_volume_path.endswith("ct.nii.gz")
+
+
+def test_dicom_directory_upload_succeeds_with_optional_real_pet(
+    client, dicom_directory_upload_parts, minimal_nifti_gz_bytes
+):
+    response = client.post(
+        "/upload",
+        files=dicom_directory_upload_parts
+        + [
+            (
+                "real_pet_file",
+                (
+                    "pet.nii.gz",
+                    minimal_nifti_gz_bytes,
+                    "application/octet-stream",
+                ),
+            )
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["source_type"] == "dicom_dir"
+    assert data["has_real_pet"] is True
+
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.real_pet_volume_path is not None
+    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
+    assert manifest.upload_mode == "with_evaluation"
+
+
+def test_dicom_directory_upload_succeeds_with_optional_pet_dicom_folder(
+    client,
+    dicom_directory_upload_parts,
+    pet_dicom_directory_upload_parts,
+):
+    response = client.post(
+        "/upload",
+        files=dicom_directory_upload_parts + pet_dicom_directory_upload_parts,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["source_type"] == "dicom_dir"
+    assert data["has_real_pet"] is True
+
+    manifest = study_manifests[data["job_id"]]
+    assert manifest.real_pet_volume_path is not None
+    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
+    assert manifest.upload_mode == "with_evaluation"
 
 
 def test_multi_series_dicom_rejected(client, multi_series_dicom_zip_bytes):

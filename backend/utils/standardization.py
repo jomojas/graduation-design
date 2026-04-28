@@ -56,7 +56,7 @@ def standardize_dicom_ct(
     dicom_dir: Path,
     ct_output_path: Path,
 ) -> StandardizationResult:
-    ct_volume, metadata = read_dicom_series(dicom_dir)
+    ct_volume, metadata = read_dicom_series(dicom_dir, modality="CT")
     geometry = metadata.get("geometry") or {}
     affine_ras = np.asarray(geometry.get("affine_ras", np.eye(4)), dtype=np.float64)
     # Keep existing model-facing semantics: volume layout is [H, W, D].
@@ -64,6 +64,26 @@ def standardize_dicom_ct(
     geometry["standardized_path"] = str(ct_output_path)
     return StandardizationResult(
         ct_path=ct_output_path,
+        real_pet_path=None,
+        geometry=geometry,
+        metadata=metadata,
+    )
+
+
+def standardize_dicom_pet(
+    dicom_dir: Path,
+    pet_output_path: Path,
+) -> StandardizationResult:
+    pet_volume, metadata = read_dicom_series(dicom_dir, modality="PT")
+    geometry = metadata.get("geometry") or {}
+    affine_ras = np.asarray(geometry.get("affine_ras", np.eye(4)), dtype=np.float64)
+    save(
+        Nifti1Image(pet_volume.astype(np.float32), affine_ras),
+        str(pet_output_path),
+    )
+    geometry["standardized_path"] = str(pet_output_path)
+    return StandardizationResult(
+        ct_path=pet_output_path,
         real_pet_path=None,
         geometry=geometry,
         metadata=metadata,

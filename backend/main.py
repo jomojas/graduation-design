@@ -30,6 +30,7 @@ from utils.standardization import (
     extract_nifti_geometry,
     standardize_nifti_to_niigz,
     standardize_dicom_ct,
+    standardize_dicom_pet,
 )
 
 
@@ -518,6 +519,7 @@ async def upload_case(
     ct_file: Optional[UploadFile] = File(None),
     real_pet_file: Optional[UploadFile] = File(None),
     dicom_files: list[UploadFile] = File(default_factory=list),
+    real_pet_dicom_files: list[UploadFile] = File(default_factory=list),
 ) -> UploadResponse:
     active_converter = _ensure_converter_ready()
 
@@ -527,6 +529,12 @@ async def upload_case(
         raise HTTPException(
             status_code=400,
             detail="Provide either ct_file (.nii/.nii.gz/.zip/.dcm) or dicom_files",
+        )
+
+    if not has_dicom_directory and real_pet_dicom_files:
+        raise HTTPException(
+            status_code=400,
+            detail="real_pet_dicom_files is only supported for Directory DICOM upload mode",
         )
 
     job_id = uuid.uuid4().hex
@@ -546,7 +554,7 @@ async def upload_case(
         if real_pet_file and real_pet_file.filename:
             raise HTTPException(
                 status_code=400,
-                detail="real_pet_file is only supported for NIfTI upload mode",
+                detail="Use real_pet_dicom_files for optional PET in Directory DICOM mode",
             )
         dicom_dir = upload_dir / "dicom_dir"
         dicom_dir.mkdir(parents=True, exist_ok=True)
@@ -556,6 +564,25 @@ async def upload_case(
         ct_path = standardized.ct_path
         dicom_metadata = standardized.metadata
         geometry_metadata = {"ct": standardized.geometry}
+
+        if real_pet_dicom_files:
+            pet_dicom_dir = upload_dir / "real_pet_dicom_dir"
+            pet_dicom_dir.mkdir(parents=True, exist_ok=True)
+            _save_directory_upload(real_pet_dicom_files, pet_dicom_dir)
+
+            raw_pet_path = upload_dir / "real_pet_dicom.nii.gz"
+            standardized_pet = standardize_dicom_pet(pet_dicom_dir, raw_pet_path)
+
+            aligned_pet_path = upload_dir / "real_pet.nii.gz"
+            real_pet_path, alignment_meta = align_reference_pet_to_ct(
+                ct_path,
+                standardized_pet.ct_path,
+                aligned_pet_path,
+            )
+            geometry_metadata["reference_pet"] = {
+                "geometry": extract_nifti_geometry(real_pet_path),
+                "alignment": alignment_meta,
+            }
     else:
         assert ct_file is not None
         filename = ct_file.filename or ""
@@ -603,11 +630,6 @@ async def upload_case(
                 }
         elif lower_name.endswith(".zip") or lower_name.endswith(".dcm"):
             source_type = "dicom_zip" if lower_name.endswith(".zip") else "dicom_dir"
-            if real_pet_file and real_pet_file.filename:
-                raise HTTPException(
-                    status_code=400,
-                    detail="real_pet_file is only supported for NIfTI upload mode",
-                )
             dicom_root = upload_dir / "dicom"
             dicom_root.mkdir(parents=True, exist_ok=True)
 
@@ -634,6 +656,27 @@ async def upload_case(
             ct_path = standardized.ct_path
             dicom_metadata = standardized.metadata
             geometry_metadata = {"ct": standardized.geometry}
+
+            if real_pet_file and real_pet_file.filename:
+                _validate_nifti(real_pet_file.filename)
+                pet_content = await real_pet_file.read()
+                if len(pet_content) > 200 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=400, detail="Real PET file exceeds 200MB"
+                    )
+                raw_pet_ext = _get_nifti_extension(pet_content)
+                raw_pet_path = upload_dir / f"real_pet_input{raw_pet_ext}"
+                raw_pet_path.write_bytes(pet_content)
+                standardized_pet_path = upload_dir / "real_pet.nii.gz"
+                real_pet_path, alignment_meta = align_reference_pet_to_ct(
+                    ct_path,
+                    raw_pet_path,
+                    standardized_pet_path,
+                )
+                geometry_metadata["reference_pet"] = {
+                    "geometry": extract_nifti_geometry(real_pet_path),
+                    "alignment": alignment_meta,
+                }
         else:
             raise HTTPException(
                 status_code=400,

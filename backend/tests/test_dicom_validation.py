@@ -97,7 +97,7 @@ def test_dicom_read_uses_spatial_order_not_filename(tmp_path: Path):
     dicom_dir.mkdir()
     _write_series(dicom_dir, [4.5, 0.0, 1.5, 3.0])
 
-    volume, metadata = read_dicom_series(dicom_dir)
+    volume, metadata = read_dicom_series(dicom_dir, modality="CT")
 
     assert volume.shape == (16, 16, 4)
     assert np.allclose(volume[:, :, 0], 0.0)
@@ -113,7 +113,7 @@ def test_dicom_rejects_inconsistent_slice_spacing(tmp_path: Path):
     _write_series(dicom_dir, [0.0, 1.2, 3.8, 4.9])
 
     with pytest.raises(HTTPException) as exc_info:
-        read_dicom_series(dicom_dir)
+        read_dicom_series(dicom_dir, modality="CT")
 
     assert exc_info.value.status_code == 400
     assert "inconsistent slice spacing" in str(exc_info.value.detail).lower()

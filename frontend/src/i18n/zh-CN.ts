@@ -46,6 +46,7 @@ export const zhCN: TranslationCatalog = {
 
   ctNiftiRequired: 'CT NIfTI（必选）',
   realPetOptional: '真实 PET NIfTI（可选）',
+  realPetDicomOptional: '真实 PET DICOM 文件夹（可选）',
   dicomZipRequired: 'DICOM ZIP（必选）',
   dicomDirRequired: 'DICOM 文件夹（必选）',
   chooseFile: '选择文件',

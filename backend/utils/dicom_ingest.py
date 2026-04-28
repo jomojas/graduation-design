@@ -109,7 +109,7 @@ def _build_nifti_affine_ras(
     return lps_to_ras @ affine_lps
 
 
-def enforce_single_ct_series(dicom_dir: Path) -> Path:
+def enforce_single_series(dicom_dir: Path, modality: str) -> Path:
     if not dicom_dir.exists() or not dicom_dir.is_dir():
         raise HTTPException(status_code=400, detail="No valid DICOM series found")
 
@@ -117,19 +117,20 @@ def enforce_single_ct_series(dicom_dir: Path) -> Path:
     valid_ct_instances = 0
     missing_tag_instances = 0
 
+    modality_expected = modality.strip().upper()
     for file_path in _iter_candidate_files(dicom_dir):
         ds = _read_header(file_path)
         if ds is None:
             continue
 
         series_uid = str(getattr(ds, "SeriesInstanceUID", "")).strip()
-        modality = str(getattr(ds, "Modality", "")).strip().upper()
+        modality_value = str(getattr(ds, "Modality", "")).strip().upper()
         image_position = getattr(ds, "ImagePositionPatient", None)
 
         if not series_uid or image_position is None:
             missing_tag_instances += 1
             continue
-        if modality != "CT":
+        if modality_value != modality_expected:
             continue
 
         series_uids.add(series_uid)
@@ -148,21 +149,24 @@ def enforce_single_ct_series(dicom_dir: Path) -> Path:
     return dicom_dir
 
 
-def read_dicom_series(path: Path) -> tuple[np.ndarray, dict[str, Any]]:
-    dicom_dir = enforce_single_ct_series(path)
+def read_dicom_series(
+    path: Path, *, modality: str = "CT"
+) -> tuple[np.ndarray, dict[str, Any]]:
+    dicom_dir = enforce_single_series(path, modality)
 
     slices: list[tuple[float, Path, FileDataset, np.ndarray]] = []
     series_uid: str | None = None
     normal: np.ndarray | None = None
 
+    modality_expected = modality.strip().upper()
     for file_path in _iter_candidate_files(dicom_dir):
         ds = _read_header(file_path)
         if ds is None:
             continue
 
         ds_series_uid = str(getattr(ds, "SeriesInstanceUID", "")).strip()
-        modality = str(getattr(ds, "Modality", "")).strip().upper()
-        if not ds_series_uid or modality != "CT":
+        modality_value = str(getattr(ds, "Modality", "")).strip().upper()
+        if not ds_series_uid or modality_value != modality_expected:
             continue
 
         if series_uid is None:
@@ -232,7 +236,7 @@ def read_dicom_series(path: Path) -> tuple[np.ndarray, dict[str, Any]]:
 
     metadata: dict[str, Any] = {
         "series_instance_uid": series_uid,
-        "modality": "CT",
+        "modality": modality_expected,
         "patient_id": str(getattr(first_ds, "PatientID", "")).strip() or None,
         "patient_name": str(getattr(first_ds, "PatientName", "")).strip() or None,
         "study_id": str(getattr(first_ds, "StudyID", "")).strip() or None,

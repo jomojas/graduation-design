@@ -69,10 +69,12 @@ const CTUpload: React.FC = () => {
   const [realPetFile, setRealPetFile] = useState<File | null>(null)
   const [dicomZipFile, setDicomZipFile] = useState<File | null>(null)
   const [dicomDirFiles, setDicomDirFiles] = useState<File[]>([])
+  const [realPetDicomDirFiles, setRealPetDicomDirFiles] = useState<File[]>([])
   const [niftiCtUploadList, setNiftiCtUploadList] = useState<UploadFile[]>([])
   const [realPetUploadList, setRealPetUploadList] = useState<UploadFile[]>([])
   const [dicomZipUploadList, setDicomZipUploadList] = useState<UploadFile[]>([])
   const [dicomDirUploadList, setDicomDirUploadList] = useState<UploadFile[]>([])
+  const [realPetDicomDirUploadList, setRealPetDicomDirUploadList] = useState<UploadFile[]>([])
   const [backendStatus, setBackendStatus] = useState<boolean | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadStage, setUploadStage] = useState<UploadStage>('idle')
@@ -425,6 +427,25 @@ const CTUpload: React.FC = () => {
     setDicomDirUploadList(fileList)
   }
 
+  const handleRealPetDicomDirUploadChange: UploadProps['onChange'] = ({ fileList }) => {
+    const files = toBrowserFiles(fileList)
+    if (files.length === 0) {
+      setRealPetDicomDirFiles([])
+      setRealPetDicomDirUploadList([])
+      return
+    }
+    const error = validateDicomDirectoryFiles(files)
+    if (error) {
+      setUploadError(error)
+      setRealPetDicomDirFiles([])
+      setRealPetDicomDirUploadList([])
+      return
+    }
+    setUploadError(null)
+    setRealPetDicomDirFiles(files)
+    setRealPetDicomDirUploadList(fileList)
+  }
+
   const handleUploadAndInfer = async () => {
     if (uploadMode === 'nifti' && !niftiCtFile) {
       setUploadError(t('uploadCtRequired'))
@@ -455,11 +476,18 @@ const CTUpload: React.FC = () => {
       }
       if (uploadMode === 'dicom_zip' && dicomZipFile) {
         formData.append('ct_file', dicomZipFile)
+        if (realPetFile) {
+          formData.append('real_pet_file', realPetFile)
+        }
       }
       if (uploadMode === 'dicom_dir') {
         dicomDirFiles.forEach((fileObj) => {
           const relativePath = (fileObj as File & { webkitRelativePath?: string }).webkitRelativePath
           formData.append('dicom_files', fileObj, relativePath || fileObj.name)
+        })
+        realPetDicomDirFiles.forEach((fileObj) => {
+          const relativePath = (fileObj as File & { webkitRelativePath?: string }).webkitRelativePath
+          formData.append('real_pet_dicom_files', fileObj, relativePath || fileObj.name)
         })
       }
 
@@ -488,10 +516,12 @@ const CTUpload: React.FC = () => {
     setRealPetFile(null)
     setDicomZipFile(null)
     setDicomDirFiles([])
+    setRealPetDicomDirFiles([])
     setNiftiCtUploadList([])
     setRealPetUploadList([])
     setDicomZipUploadList([])
     setDicomDirUploadList([])
+    setRealPetDicomDirUploadList([])
     setUploadError(null)
     setUploadStage('idle')
     setStudyResult(null)
@@ -615,58 +645,115 @@ const CTUpload: React.FC = () => {
           )}
 
           {uploadMode === 'dicom_zip' && (
-            <label className="medical-file-control">
-              <span>{t('dicomZipRequired')}</span>
-              <div data-testid="dicom-zip-input">
-                <Upload
-                  fileList={dicomZipUploadList}
-                  maxCount={1}
-                  showUploadList={false}
-                  beforeUpload={() => false}
-                  onChange={handleDicomZipUploadChange}
-                  onRemove={() => {
-                    setDicomZipFile(null)
-                    setDicomZipUploadList([])
-                    return true
-                  }}
-                  accept=".zip"
-                >
-                  <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
-                    {t('chooseFile')}
-                  </button>
-                </Upload>
-              </div>
-              <small>{dicomZipFile ? dicomZipFile.name : t('noFileSelected')}</small>
-            </label>
+            <>
+              <label className="medical-file-control">
+                <span>{t('dicomZipRequired')}</span>
+                <div data-testid="dicom-zip-input">
+                  <Upload
+                    fileList={dicomZipUploadList}
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleDicomZipUploadChange}
+                    onRemove={() => {
+                      setDicomZipFile(null)
+                      setDicomZipUploadList([])
+                      return true
+                    }}
+                    accept=".zip"
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFile')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>{dicomZipFile ? dicomZipFile.name : t('noFileSelected')}</small>
+              </label>
+
+              <label className="medical-file-control">
+                <span>{t('realPetOptional')}</span>
+                <div data-testid="real-pet-input">
+                  <Upload
+                    fileList={realPetUploadList}
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleRealPetUploadChange}
+                    onRemove={() => {
+                      setRealPetFile(null)
+                      setRealPetUploadList([])
+                      return true
+                    }}
+                    accept=".nii,.nii.gz"
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFile')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>{realPetFile ? realPetFile.name : t('noFileSelected')}</small>
+              </label>
+            </>
           )}
 
           {uploadMode === 'dicom_dir' && (
-            <label className="medical-file-control">
-              <span>{t('dicomDirRequired')}</span>
-              <div data-testid="dicom-dir-input">
-                <Upload
-                  fileList={dicomDirUploadList}
-                  showUploadList={false}
-                  beforeUpload={() => false}
-                  onChange={handleDicomDirUploadChange}
-                  onRemove={(file) => {
-                    const nextList = dicomDirUploadList.filter((item) => item.uid !== file.uid)
-                    setDicomDirUploadList(nextList)
-                    setDicomDirFiles(toBrowserFiles(nextList))
-                    return true
-                  }}
-                  directory
-                  multiple
-                >
-                  <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
-                    {t('chooseFolder')}
-                  </button>
-                </Upload>
-              </div>
-              <small>
-                {dicomDirFiles.length > 0 ? t('dicomFilesReady', dicomDirFiles.length) : t('chooseDicomFolder')}
-              </small>
-            </label>
+            <>
+              <label className="medical-file-control">
+                <span>{t('dicomDirRequired')}</span>
+                <div data-testid="dicom-dir-input">
+                  <Upload
+                    fileList={dicomDirUploadList}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleDicomDirUploadChange}
+                    onRemove={(file) => {
+                      const nextList = dicomDirUploadList.filter((item) => item.uid !== file.uid)
+                      setDicomDirUploadList(nextList)
+                      setDicomDirFiles(toBrowserFiles(nextList))
+                      return true
+                    }}
+                    directory
+                    multiple
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFolder')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>
+                  {dicomDirFiles.length > 0 ? t('dicomFilesReady', dicomDirFiles.length) : t('chooseDicomFolder')}
+                </small>
+              </label>
+
+              <label className="medical-file-control">
+                <span>{t('realPetDicomOptional')}</span>
+                <div data-testid="real-pet-dicom-dir-input">
+                  <Upload
+                    fileList={realPetDicomDirUploadList}
+                    showUploadList={false}
+                    beforeUpload={() => false}
+                    onChange={handleRealPetDicomDirUploadChange}
+                    onRemove={(file) => {
+                      const nextList = realPetDicomDirUploadList.filter((item) => item.uid !== file.uid)
+                      setRealPetDicomDirUploadList(nextList)
+                      setRealPetDicomDirFiles(toBrowserFiles(nextList))
+                      return true
+                    }}
+                    directory
+                    multiple
+                  >
+                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
+                      {t('chooseFolder')}
+                    </button>
+                  </Upload>
+                </div>
+                <small>
+                  {realPetDicomDirFiles.length > 0
+                    ? t('dicomFilesReady', realPetDicomDirFiles.length)
+                    : t('chooseDicomFolder')}
+                </small>
+              </label>
+            </>
           )}
 
           {uploadError && (

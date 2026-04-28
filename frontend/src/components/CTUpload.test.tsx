@@ -169,6 +169,33 @@ describe('CTUpload', () => {
     expect(payload.get('real_pet_file')).toBeNull()
   })
 
+  it('submits zipped DICOM with optional real PET nifti payload', async () => {
+    renderUpload()
+    fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
+
+    const zipInput = getUploadInput('dicom-zip-input')
+    const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
+    fireEvent.change(zipInput, { target: { files: [zipFile] } })
+
+    const petInput = getUploadInput('real-pet-input')
+    const petFile = new File(['pet'], 'pet.nii.gz', { type: 'application/octet-stream' })
+    fireEvent.change(petInput, { target: { files: [petFile] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
+
+    await waitFor(() => {
+      expect(mockedAxios.post).toHaveBeenCalled()
+    })
+
+    const payload = mockedAxios.post.mock.calls[0]?.[1] as FormData
+    expect(payload.get('ct_file')).toBe(zipFile)
+    expect(payload.get('real_pet_file')).toBe(petFile)
+  })
+
   it('submits browser directory DICOM as repeated dicom_files', async () => {
     renderUpload()
     fireEvent.click(screen.getByRole('radio', { name: '目录 DICOM' }))
@@ -195,6 +222,42 @@ describe('CTUpload', () => {
     expect(uploadedDicomFiles.length).toBe(2)
     expect(uploadedDicomFiles[0]?.name).toBe('study/1.dcm')
     expect(uploadedDicomFiles[1]?.name).toBe('study/2.dcm')
+  })
+
+  it('submits browser directory DICOM with optional real PET DICOM folder payload', async () => {
+    renderUpload()
+    fireEvent.click(screen.getByRole('radio', { name: '目录 DICOM' }))
+
+    const directoryInput = getUploadInput('dicom-dir-input')
+    const dicom1 = new File(['a'], '1.dcm', { type: 'application/dicom' })
+    const dicom2 = new File(['b'], '2.dcm', { type: 'application/dicom' })
+    Object.defineProperty(dicom1, 'webkitRelativePath', { value: 'study/1.dcm' })
+    Object.defineProperty(dicom2, 'webkitRelativePath', { value: 'study/2.dcm' })
+    fireEvent.change(directoryInput, { target: { files: [dicom1, dicom2] } })
+
+    const petDirInput = getUploadInput('real-pet-dicom-dir-input')
+    const pet1 = new File(['p1'], 'p1.dcm', { type: 'application/dicom' })
+    const pet2 = new File(['p2'], 'p2.dcm', { type: 'application/dicom' })
+    Object.defineProperty(pet1, 'webkitRelativePath', { value: 'pet/1.dcm' })
+    Object.defineProperty(pet2, 'webkitRelativePath', { value: 'pet/2.dcm' })
+    fireEvent.change(petDirInput, { target: { files: [pet1, pet2] } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
+
+    await waitFor(() => {
+      expect(mockedAxios.post).toHaveBeenCalled()
+    })
+
+    const payload = mockedAxios.post.mock.calls[0]?.[1] as FormData
+    const uploadedDicomFiles = payload.getAll('dicom_files') as File[]
+    expect(uploadedDicomFiles.length).toBe(2)
+    const uploadedPetFiles = payload.getAll('real_pet_dicom_files') as File[]
+    expect(uploadedPetFiles.length).toBe(2)
+    expect(payload.get('real_pet_file')).toBeNull()
   })
 
   it('renders inline backend validation detail on upload error', async () => {

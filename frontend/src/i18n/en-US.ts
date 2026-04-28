@@ -46,6 +46,7 @@ export const enUS: TranslationCatalog = {
 
   ctNiftiRequired: 'CT NIfTI (required)',
   realPetOptional: 'Real PET NIfTI (optional)',
+  realPetDicomOptional: 'Real PET DICOM directory (optional)',
   dicomZipRequired: 'DICOM ZIP (required)',
   dicomDirRequired: 'DICOM directory (required)',
   chooseFile: 'Choose File',
