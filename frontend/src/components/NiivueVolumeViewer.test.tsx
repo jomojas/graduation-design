@@ -67,7 +67,35 @@ describe('NiivueVolumeViewer', () => {
 
     await waitFor(() => {
       expect(mockViewers).toHaveLength(1)
-      expect(mockViewers[0].broadcastTo).toHaveBeenCalledWith(peer)
+      expect(mockViewers[0].broadcastTo).toHaveBeenCalledWith([peer])
+    })
+  })
+
+  it('broadcasts to multiple peers with a single call', async () => {
+    const peerA = {
+      attachToCanvas: vi.fn(),
+      loadVolumes: vi.fn(),
+      broadcastTo: vi.fn(),
+      cleanup: vi.fn(),
+    }
+    const peerB = {
+      attachToCanvas: vi.fn(),
+      loadVolumes: vi.fn(),
+      broadcastTo: vi.fn(),
+      cleanup: vi.fn(),
+    }
+
+    render(
+      <NiivueVolumeViewer
+        volumeUrls={['/cases/pet.nii']}
+        syncPeers={[peerA, peerB]}
+      />
+    )
+
+    await waitFor(() => {
+      expect(mockViewers).toHaveLength(1)
+      expect(mockViewers[0].broadcastTo).toHaveBeenCalledTimes(1)
+      expect(mockViewers[0].broadcastTo).toHaveBeenCalledWith([peerA, peerB])
     })
   })
 })
