@@ -39,6 +39,7 @@ wheels/
 .installed.cfg
 *.egg
 .env
+backend/.env
 .venv
 venv/
 ENV/
@@ -66,6 +67,7 @@ yarn-error.log*
 
 # --- Agent / Test Artifacts ---
 .sisyphus/
+.claude/
 .pytest_cache/
 .mypy_cache/
 .coverage

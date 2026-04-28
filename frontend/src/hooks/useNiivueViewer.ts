@@ -24,8 +24,6 @@ type UseNiivueViewerArgs = {
   volumes: NiivueVolume[]
   syncPeers?: NiivueViewerLike[]
   onViewerReady?: (viewer: NiivueViewerLike) => void
-  sliceIndex?: number
-  sliceCount?: number
 }
 
 export const useNiivueViewer = ({
@@ -33,8 +31,6 @@ export const useNiivueViewer = ({
   volumes,
   syncPeers = [],
   onViewerReady,
-  sliceIndex,
-  sliceCount,
 }: UseNiivueViewerArgs) => {
   const viewerRef = useRef<NiivueViewerLike | null>(null)
 
@@ -84,36 +80,6 @@ export const useNiivueViewer = ({
 
     synchronizeNiivuePeers(viewer, syncPeers)
   }, [syncPeers])
-
-  useEffect(() => {
-    const viewer = viewerRef.current as unknown as {
-      setSliceType?: (value: number) => void
-      setSliceMM?: (value: number) => void
-      setSliceFrac?: (value: number) => void
-      updateGLVolume?: () => void
-      drawScene?: () => void
-    } | null
-
-    if (!viewer || typeof sliceIndex !== 'number' || !Number.isFinite(sliceIndex) || sliceIndex < 0) {
-      return
-    }
-
-    if (typeof viewer.setSliceMM === 'function') {
-      viewer.setSliceMM(sliceIndex)
-    }
-
-    if (
-      typeof viewer.setSliceFrac === 'function' &&
-      typeof sliceCount === 'number' &&
-      Number.isFinite(sliceCount) &&
-      sliceCount > 1
-    ) {
-      viewer.setSliceFrac(sliceIndex / (sliceCount - 1))
-    }
-
-    viewer.updateGLVolume?.()
-    viewer.drawScene?.()
-  }, [sliceCount, sliceIndex])
 
   return viewerRef
 }

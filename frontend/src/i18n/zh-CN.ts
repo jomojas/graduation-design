@@ -67,13 +67,9 @@ export const zhCN: TranslationCatalog = {
   emptyWorkspace: '请先提交一组数据以开始',
   loadingWorkspace: '正在加载工作区',
 
-  fusionControls: '融合控制',
-  petColormap: 'PET 伪彩',
-  fusionOpacity: (value: number) => `融合透明度: ${value}%`,
   ctVolume: 'CT 体数据',
   realPetReference: '真实 PET 参考',
   predictedPetFusion: '预测 PET 融合图',
-  sliceIndex: (index: number) => `切片索引: ${index}`,
 
   processingState: '处理状态',
   stepUploadPayload: '上传数据',

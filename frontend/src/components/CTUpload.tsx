@@ -62,6 +62,8 @@ const formatMetric = (value: number | null, precision: number, fallback: string)
 
 const CTUpload: React.FC = () => {
   const { t } = useLanguage()
+  const PET_COLORMAP = 'hot'
+  const FUSION_OPACITY = 0.65
   const [uploadMode, setUploadMode] = useState<UploadMode>('nifti')
   const [niftiCtFile, setNiftiCtFile] = useState<File | null>(null)
   const [realPetFile, setRealPetFile] = useState<File | null>(null)
@@ -75,11 +77,7 @@ const CTUpload: React.FC = () => {
   const [uploading, setUploading] = useState(false)
   const [uploadStage, setUploadStage] = useState<UploadStage>('idle')
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [caseMeta, setCaseMeta] = useState<CaseMeta | null>(null)
   const [studyResult, setStudyResult] = useState<StudyResultResponse | null>(null)
-  const [sliceIndex, setSliceIndex] = useState(0)
-  const [petColormap, setPetColormap] = useState<'hot' | 'plasma'>('hot')
-  const [fusionOpacity, setFusionOpacity] = useState(65)
   const [ctViewer, setCtViewer] = useState<NiivueViewerLike | null>(null)
   const [predViewer, setPredViewer] = useState<NiivueViewerLike | null>(null)
   const [realViewer, setRealViewer] = useState<NiivueViewerLike | null>(null)
@@ -208,8 +206,8 @@ const CTUpload: React.FC = () => {
     if (!realPetVolumeUrl) {
       return []
     }
-    return [{ url: realPetVolumeUrl, colormap: petColormap }]
-  }, [petColormap, realPetVolumeUrl])
+    return [{ url: realPetVolumeUrl, colormap: PET_COLORMAP }]
+  }, [realPetVolumeUrl])
 
   const predictedFusionVolumes = useMemo<NonNullable<NiivueVolumeViewerProps['volumes']>>(() => {
     if (!ctVolumeUrl || !predPetVolumeUrl) {
@@ -217,13 +215,11 @@ const CTUpload: React.FC = () => {
     }
     return [
       { url: ctVolumeUrl },
-      { url: predPetVolumeUrl, colormap: petColormap, opacity: fusionOpacity / 100 }
+      { url: predPetVolumeUrl, colormap: PET_COLORMAP, opacity: FUSION_OPACITY }
     ]
-  }, [ctVolumeUrl, fusionOpacity, petColormap, predPetVolumeUrl])
+  }, [ctVolumeUrl, predPetVolumeUrl])
 
   const hasRealPet = Boolean(activeResult?.has_real_pet && realPetVolumeUrl)
-  const maxSliceIndex = Math.max((activeResult?.num_slices ?? caseMeta?.num_slices ?? 1) - 1, 0)
-
   const hasMetrics = useMemo(() => {
     const metrics = activeResult?.metrics
     if (!metrics) {
@@ -301,11 +297,7 @@ const CTUpload: React.FC = () => {
     }
   }, [hasRealPet, realViewer])
 
-  useEffect(() => {
-    if (sliceIndex > maxSliceIndex) {
-      setSliceIndex(maxSliceIndex)
-    }
-  }, [maxSliceIndex, sliceIndex])
+
 
   const validateNiftiFile = (file: File) => {
     const lower = file.name.toLowerCase()
@@ -450,9 +442,8 @@ const CTUpload: React.FC = () => {
     setUploading(true)
     setUploadStage('uploading')
     setUploadError(null)
-    setCaseMeta(null)
     setStudyResult(null)
-    setSliceIndex(0)
+    // no-op: slice index is controlled by Niivue interactions
 
     try {
       const formData = new FormData()
@@ -479,7 +470,6 @@ const CTUpload: React.FC = () => {
 
       const uploadMeta = response.data as CaseMeta
       setUploadStage('rendering')
-      setCaseMeta(uploadMeta)
 
       const studyId = uploadMeta.study_id || uploadMeta.job_id
       const studyResultResponse = await axios.get(`${API_BASE}/studies/${studyId}/result`)
@@ -504,11 +494,8 @@ const CTUpload: React.FC = () => {
     setDicomDirUploadList([])
     setUploadError(null)
     setUploadStage('idle')
-    setCaseMeta(null)
     setStudyResult(null)
-    setSliceIndex(0)
-    setPetColormap('hot')
-    setFusionOpacity(65)
+    // no-op: slice/colormap/opacity controls removed
   }
 
   return (
@@ -771,55 +758,14 @@ const CTUpload: React.FC = () => {
               </div>
             )}
 
-          {activeResult && (
-            <div>
-              <div className="medical-subpanel medical-subpanel-spaced">
-                <h3 className="medical-subpanel-title">{t('fusionControls')}</h3>
-                <div className="medical-fusion-controls">
-                  <div>
-                    <div className="medical-control-label">{t('petColormap')}</div>
-                    <div className="medical-toggle-group" role="group" aria-label={t('petColormap')}>
-                      <button
-                        type="button"
-                        className={`medical-toggle ${petColormap === 'hot' ? 'medical-toggle-active' : ''}`}
-                        onClick={() => setPetColormap('hot')}
-                      >
-                        hot
-                      </button>
-                      <button
-                        type="button"
-                        className={`medical-toggle ${petColormap === 'plasma' ? 'medical-toggle-active' : ''}`}
-                        onClick={() => setPetColormap('plasma')}
-                      >
-                        plasma
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="fusion-opacity" className="medical-control-label">
-                      {t('fusionOpacity', fusionOpacity)}
-                    </label>
-                    <input
-                      className="medical-range-input"
-                      id="fusion-opacity"
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={fusionOpacity}
-                      onChange={(event) => setFusionOpacity(Number(event.target.value))}
-                    />
-                  </div>
-                </div>
-              </div>
-
+           {activeResult && (
+             <div>
               <div className={`medical-viewer-grid ${hasRealPet ? 'medical-viewer-grid-real' : ''}`}>
                 <article className="medical-subpanel">
                   <h3 className="medical-subpanel-title">{t('ctVolume')}</h3>
                   <div className="medical-viewer-frame">
                     <NiivueVolumeViewer
                       volumes={ctVolumes}
-                      sliceIndex={sliceIndex}
-                      sliceCount={activeResult.num_slices}
                       syncPeers={ctSyncPeers}
                       onViewerReady={handleCtViewerReady}
                     />
@@ -832,8 +778,6 @@ const CTUpload: React.FC = () => {
                     <div className="medical-viewer-frame">
                       <NiivueVolumeViewer
                         volumes={realPetVolumes}
-                        sliceIndex={sliceIndex}
-                        sliceCount={activeResult.num_slices}
                         syncPeers={realSyncPeers}
                         onViewerReady={handleRealViewerReady}
                       />
@@ -846,28 +790,11 @@ const CTUpload: React.FC = () => {
                   <div className="medical-viewer-frame">
                     <NiivueVolumeViewer
                       volumes={predictedFusionVolumes}
-                      sliceIndex={sliceIndex}
-                      sliceCount={activeResult.num_slices}
                       syncPeers={predSyncPeers}
                       onViewerReady={handlePredViewerReady}
                     />
                   </div>
                 </article>
-              </div>
-
-              <div className="medical-slice-control">
-                <label htmlFor="slice-index" className="medical-control-label">
-                  {t('sliceIndex', sliceIndex)}
-                </label>
-                <input
-                  className="medical-range-input"
-                  id="slice-index"
-                  type="range"
-                  min={0}
-                  max={maxSliceIndex}
-                  value={sliceIndex}
-                  onChange={(event) => setSliceIndex(Number(event.target.value))}
-                />
               </div>
             </div>
           )}

@@ -67,13 +67,9 @@ export const enUS: TranslationCatalog = {
   emptyWorkspace: 'Submit a study to start',
   loadingWorkspace: 'Loading workspace',
 
-  fusionControls: 'Fusion Controls',
-  petColormap: 'PET colormap',
-  fusionOpacity: (value: number) => `Fusion opacity: ${value}%`,
   ctVolume: 'CT Volume',
   realPetReference: 'Real PET Reference',
   predictedPetFusion: 'Predicted PET Fusion',
-  sliceIndex: (index: number) => `Slice index: ${index}`,
 
   processingState: 'Processing State',
   stepUploadPayload: 'Upload payload',

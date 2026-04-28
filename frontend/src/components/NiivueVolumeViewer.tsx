@@ -12,8 +12,6 @@ type NiivueVolumeViewerProps = {
   volumes?: VolumeConfig[]
   syncPeers?: NiivueViewerLike[]
   onViewerReady?: (viewer: NiivueViewerLike) => void
-  sliceIndex?: number
-  sliceCount?: number
   className?: string
   style?: React.CSSProperties
 }
@@ -23,8 +21,6 @@ const NiivueVolumeViewer: React.FC<NiivueVolumeViewerProps> = ({
   volumes,
   syncPeers,
   onViewerReady,
-  sliceIndex,
-  sliceCount,
   className,
   style,
 }) => {
@@ -36,8 +32,6 @@ const NiivueVolumeViewer: React.FC<NiivueVolumeViewerProps> = ({
     volumes: resolvedVolumes,
     syncPeers,
     onViewerReady,
-    sliceIndex,
-    sliceCount,
   })
 
   return <canvas ref={canvasRef} className={className} style={{ width: '100%', height: '100%', ...style }} />
