@@ -12,7 +12,8 @@ export const synchronizeNiivuePeers = (source: NiivueSyncPeer, peers: NiivueSync
     return
   }
 
-  // Niivue's broadcastTo expects an array of peers; calling it repeatedly can
-  // overwrite the internal sync list (only the last peer receives updates).
+  // 中文说明：Niivue 的 broadcastTo 期望一次传入“目标 viewer 数组”。
+  // 如果对每个 peer 单独调用 broadcastTo，Niivue 内部可能会覆盖 sync 列表，
+  // 导致只有最后一个 peer 能收到同步更新。
   source.broadcastTo(targets)
 }

@@ -12,7 +12,7 @@ const API_BASE = 'http://localhost:8000'
 type CaseMeta = {
   job_id: string
   study_id?: string
-  source_type: 'nifti' | 'dicom_zip' | 'dicom_dir'
+  source_type: 'nifti' | 'dicom_dir'
   num_slices: number
   shape: [number, number, number]
   has_real_pet: boolean
@@ -46,7 +46,7 @@ type StudyResultResponse = {
   real_pet: StudyResultVolume
 }
 
-type UploadMode = 'nifti' | 'dicom_zip' | 'dicom_dir'
+type UploadMode = 'nifti' | 'dicom_dir'
 type UploadStage = 'idle' | 'uploading' | 'processing' | 'rendering'
 
 const MAX_MB = 200
@@ -67,12 +67,10 @@ const CTUpload: React.FC = () => {
   const [uploadMode, setUploadMode] = useState<UploadMode>('nifti')
   const [niftiCtFile, setNiftiCtFile] = useState<File | null>(null)
   const [realPetFile, setRealPetFile] = useState<File | null>(null)
-  const [dicomZipFile, setDicomZipFile] = useState<File | null>(null)
   const [dicomDirFiles, setDicomDirFiles] = useState<File[]>([])
   const [realPetDicomDirFiles, setRealPetDicomDirFiles] = useState<File[]>([])
   const [niftiCtUploadList, setNiftiCtUploadList] = useState<UploadFile[]>([])
   const [realPetUploadList, setRealPetUploadList] = useState<UploadFile[]>([])
-  const [dicomZipUploadList, setDicomZipUploadList] = useState<UploadFile[]>([])
   const [dicomDirUploadList, setDicomDirUploadList] = useState<UploadFile[]>([])
   const [realPetDicomDirUploadList, setRealPetDicomDirUploadList] = useState<UploadFile[]>([])
   const [backendStatus, setBackendStatus] = useState<boolean | null>(null)
@@ -151,11 +149,8 @@ const CTUpload: React.FC = () => {
     if (uploadMode === 'nifti') {
       return !niftiCtFile
     }
-    if (uploadMode === 'dicom_zip') {
-      return !dicomZipFile
-    }
     return dicomDirFiles.length === 0
-  }, [dicomDirFiles.length, dicomZipFile, niftiCtFile, uploadMode])
+  }, [dicomDirFiles.length, niftiCtFile, uploadMode])
 
   const hasPayloadSelected = !runDisabled
 
@@ -267,16 +262,20 @@ const CTUpload: React.FC = () => {
         : 'wait'
 
   const ctSyncPeers = useMemo(() => {
+    // 中文说明：三联阅片同步采用“每个 viewer 广播到其它 viewer”的方式。
+    // CT viewer 的 peers：Pred（融合）+ Real（如果存在）。
     const peers = [predViewer, realViewer]
     return peers.filter((peer): peer is NiivueViewerLike => Boolean(peer))
   }, [predViewer, realViewer])
 
   const predSyncPeers = useMemo(() => {
+    // Pred viewer 的 peers：CT + Real。
     const peers = [ctViewer, realViewer]
     return peers.filter((peer): peer is NiivueViewerLike => Boolean(peer))
   }, [ctViewer, realViewer])
 
   const realSyncPeers = useMemo(() => {
+    // Real viewer 的 peers：CT + Pred。
     const peers = [ctViewer, predViewer]
     return peers.filter((peer): peer is NiivueViewerLike => Boolean(peer))
   }, [ctViewer, predViewer])
@@ -309,17 +308,6 @@ const CTUpload: React.FC = () => {
     }
     if (!fileSizeOk(file)) {
       return t('fileMax200mb')
-    }
-    return null
-  }
-
-  const validateZipFile = (file: File) => {
-    const lower = file.name.toLowerCase()
-    if (!lower.endsWith('.zip')) {
-      return t('zipOnly')
-    }
-    if (!fileSizeOk(file)) {
-      return t('zipMax200mb')
     }
     return null
   }
@@ -388,26 +376,6 @@ const CTUpload: React.FC = () => {
     setRealPetUploadList(nextList)
   }
 
-  const handleDicomZipUploadChange: UploadProps['onChange'] = ({ fileList }) => {
-    const nextList = normalizeSingleUploadList(fileList)
-    const file = toBrowserFiles(nextList)[0] ?? null
-    if (!file) {
-      setDicomZipFile(null)
-      setDicomZipUploadList([])
-      return
-    }
-    const error = validateZipFile(file)
-    if (error) {
-      setUploadError(error)
-      setDicomZipFile(null)
-      setDicomZipUploadList([])
-      return
-    }
-    setUploadError(null)
-    setDicomZipFile(file)
-    setDicomZipUploadList(nextList)
-  }
-
   const handleDicomDirUploadChange: UploadProps['onChange'] = ({ fileList }) => {
     const files = toBrowserFiles(fileList)
     if (files.length === 0) {
@@ -451,10 +419,6 @@ const CTUpload: React.FC = () => {
       setUploadError(t('uploadCtRequired'))
       return
     }
-    if (uploadMode === 'dicom_zip' && !dicomZipFile) {
-      setUploadError(t('uploadZipRequired'))
-      return
-    }
     if (uploadMode === 'dicom_dir' && dicomDirFiles.length === 0) {
       setUploadError(t('uploadDirRequired'))
       return
@@ -468,14 +432,12 @@ const CTUpload: React.FC = () => {
 
     try {
       const formData = new FormData()
+
+      // 中文说明：根据上传模式构造 multipart：
+      // - nifti: ct_file + 可选 real_pet_file
+      // - dicom_dir: dicom_files(多文件) + 可选 real_pet_dicom_files(多文件，PT)
       if (uploadMode === 'nifti' && niftiCtFile) {
         formData.append('ct_file', niftiCtFile)
-        if (realPetFile) {
-          formData.append('real_pet_file', realPetFile)
-        }
-      }
-      if (uploadMode === 'dicom_zip' && dicomZipFile) {
-        formData.append('ct_file', dicomZipFile)
         if (realPetFile) {
           formData.append('real_pet_file', realPetFile)
         }
@@ -514,12 +476,10 @@ const CTUpload: React.FC = () => {
   const handleReset = () => {
     setNiftiCtFile(null)
     setRealPetFile(null)
-    setDicomZipFile(null)
     setDicomDirFiles([])
     setRealPetDicomDirFiles([])
     setNiftiCtUploadList([])
     setRealPetUploadList([])
-    setDicomZipUploadList([])
     setDicomDirUploadList([])
     setRealPetDicomDirUploadList([])
     setUploadError(null)
@@ -568,19 +528,6 @@ const CTUpload: React.FC = () => {
               <input
                 type="radio"
                 name="upload-mode"
-                value="dicom_zip"
-                checked={uploadMode === 'dicom_zip'}
-                onChange={(event) => {
-                  setUploadMode(event.target.value as UploadMode)
-                  setUploadError(null)
-                }}
-              />
-              <span>{t('modeZipDicom')}</span>
-            </label>
-            <label className="medical-radio-option">
-              <input
-                type="radio"
-                name="upload-mode"
                 value="dicom_dir"
                 checked={uploadMode === 'dicom_dir'}
                 onChange={(event) => {
@@ -616,58 +563,6 @@ const CTUpload: React.FC = () => {
                   </Upload>
                 </div>
                 <small>{niftiCtFile ? niftiCtFile.name : t('noFileSelected')}</small>
-              </label>
-
-              <label className="medical-file-control">
-                <span>{t('realPetOptional')}</span>
-                <div data-testid="real-pet-input">
-                  <Upload
-                    fileList={realPetUploadList}
-                    maxCount={1}
-                    showUploadList={false}
-                    beforeUpload={() => false}
-                    onChange={handleRealPetUploadChange}
-                    onRemove={() => {
-                      setRealPetFile(null)
-                      setRealPetUploadList([])
-                      return true
-                    }}
-                    accept=".nii,.nii.gz"
-                  >
-                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
-                      {t('chooseFile')}
-                    </button>
-                  </Upload>
-                </div>
-                <small>{realPetFile ? realPetFile.name : t('noFileSelected')}</small>
-              </label>
-            </>
-          )}
-
-          {uploadMode === 'dicom_zip' && (
-            <>
-              <label className="medical-file-control">
-                <span>{t('dicomZipRequired')}</span>
-                <div data-testid="dicom-zip-input">
-                  <Upload
-                    fileList={dicomZipUploadList}
-                    maxCount={1}
-                    showUploadList={false}
-                    beforeUpload={() => false}
-                    onChange={handleDicomZipUploadChange}
-                    onRemove={() => {
-                      setDicomZipFile(null)
-                      setDicomZipUploadList([])
-                      return true
-                    }}
-                    accept=".zip"
-                  >
-                    <button type="button" className="medical-button medical-button-ghost medical-upload-trigger">
-                      {t('chooseFile')}
-                    </button>
-                  </Upload>
-                </div>
-                <small>{dicomZipFile ? dicomZipFile.name : t('noFileSelected')}</small>
               </label>
 
               <label className="medical-file-control">

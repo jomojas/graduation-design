@@ -11,6 +11,12 @@ from pydicom.dataset import FileDataset
 from pydicom.errors import InvalidDicomError
 
 
+# 说明（中文）：
+# - DICOM 目录上传会被视为“一个 series”，并且会按 Modality 过滤（CT 或 PT）。
+# - 我们通过 ImagePositionPatient + ImageOrientationPatient 推断切片法向并对切片排序。
+# - 为了稳定几何，强制 single-series，且验证切片间距近似一致。
+
+
 def _iter_candidate_files(dicom_dir: Path) -> list[Path]:
     return [path for path in dicom_dir.rglob("*") if path.is_file()]
 
@@ -118,6 +124,7 @@ def enforce_single_series(dicom_dir: Path, modality: str) -> Path:
     missing_tag_instances = 0
 
     modality_expected = modality.strip().upper()
+    # 只保留指定 Modality（例如 CT 或 PT）的实例。
     for file_path in _iter_candidate_files(dicom_dir):
         ds = _read_header(file_path)
         if ds is None:
@@ -136,6 +143,7 @@ def enforce_single_series(dicom_dir: Path, modality: str) -> Path:
         series_uids.add(series_uid)
         valid_ct_instances += 1
 
+    # 多 series 会导致切片排序/几何不确定：当前实现直接拒绝。
     if len(series_uids) > 1:
         raise HTTPException(status_code=400, detail="Multi-series DICOM not supported")
     if valid_ct_instances == 0:
@@ -183,6 +191,7 @@ def read_dicom_series(
                 detail="No valid DICOM series found: invalid ImagePositionPatient",
             ) from exc
 
+        # 用 row/col 方向向量计算法向量，进而把 ImagePositionPatient 投影到法向上获得切片坐标。
         current_normal = np.cross(row, col)
         norm = np.linalg.norm(current_normal)
         if norm < 1e-8:
@@ -203,8 +212,10 @@ def read_dicom_series(
     if not slices:
         raise HTTPException(status_code=400, detail="No valid DICOM series found")
 
+    # 按切片坐标从小到大排序，得到稳定的体数据 Z 轴顺序。
     slices.sort(key=lambda item: item[0])
     slice_coords = [item[0] for item in slices]
+    # 校验切片间距：如果间距波动过大，说明 series 可能混乱或缺片。
     validated_spacing = _validate_slice_spacing(slice_coords)
     ordered_files = [str(item[1]) for item in slices]
 
@@ -217,6 +228,7 @@ def read_dicom_series(
             status_code=400, detail="Failed to read DICOM series"
         ) from exc
 
+    # SimpleITK 输出通常是 [z, y, x]，这里转换为项目约定的 [H, W, D] == [y, x, z]。
     array_zyx = sitk.GetArrayFromImage(image).astype(np.float32)
     volume = np.transpose(array_zyx, (1, 2, 0))
     first_ds = slices[0][2]
@@ -225,6 +237,7 @@ def read_dicom_series(
     direction = image.GetDirection()
     origin = image.GetOrigin()
     slice_spacing_mm = float(validated_spacing if validated_spacing > 0 else spacing[2])
+    # 生成 NIfTI affine（RAS），并把 DICOM 的 LPS 坐标系转换到 RAS。
     affine_ras = _build_nifti_affine_ras(
         direction=direction,
         spacing=spacing,

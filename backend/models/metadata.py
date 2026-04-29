@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class CaseMetaResponse(BaseModel):
     success: bool
     job_id: str
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"]
+    source_type: Literal["nifti", "dicom_dir"]
     upload_mode: Literal["inference_only", "with_evaluation"]
     modality: Optional[str] = Field(
         default=None, description="Imaging modality, typically CT"

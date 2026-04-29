@@ -1,6 +1,5 @@
 import os
 import uuid
-import zipfile
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -35,6 +34,13 @@ from utils.standardization import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# 说明（中文）：
+# - /upload 接收 CT（必选）与可选 Real PET，用于推理与评估。
+# - Predicted PET 由模型生成；当提供 Real PET 时，后端会在同一几何空间下计算 PSNR/SSIM。
+# - DICOM 输入仅支持 Directory（多文件上传）。可选 Real PET 必须以 DICOM 文件夹形式提交
+#   （real_pet_dicom_files），并且 Modality 必须是 PT。
 
 
 class InferenceStatus(BaseModel):
@@ -101,7 +107,7 @@ class StudyManifest(BaseModel):
 
     # Core identifiers
     job_id: str = Field(..., description="Unique job identifier (UUID hex)")
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"] = Field(
+    source_type: Literal["nifti", "dicom_dir"] = Field(
         default="nifti", description="Type of input source"
     )
     upload_mode: Literal["inference_only", "with_evaluation"] = Field(
@@ -242,7 +248,7 @@ class StatusResponse(BaseModel):
 class UploadResponse(BaseModel):
     success: bool
     job_id: str
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"]
+    source_type: Literal["nifti", "dicom_dir"]
     num_slices: int
     shape: tuple[int, int, int]
     has_real_pet: bool
@@ -275,20 +281,6 @@ def _is_nifti_filename(filename: str) -> bool:
     return lower.endswith(".nii") or lower.endswith(".nii.gz")
 
 
-def _extract_zip_to_directory(zip_path: Path, target_dir: Path) -> None:
-    try:
-        with zipfile.ZipFile(zip_path, "r") as archive:
-            for member in archive.namelist():
-                destination = (target_dir / member).resolve()
-                if not str(destination).startswith(str(target_dir.resolve())):
-                    raise HTTPException(status_code=400, detail="Invalid ZIP contents")
-            archive.extractall(target_dir)
-    except zipfile.BadZipFile as exc:
-        raise HTTPException(
-            status_code=400, detail="Invalid DICOM ZIP archive"
-        ) from exc
-
-
 def _save_directory_upload(dicom_files: list[UploadFile], target_dir: Path) -> None:
     if not dicom_files:
         raise HTTPException(status_code=400, detail="No DICOM directory files provided")
@@ -308,7 +300,7 @@ def _save_directory_upload(dicom_files: list[UploadFile], target_dir: Path) -> N
 def _create_manifest(
     *,
     job_id: str,
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"],
+    source_type: Literal["nifti", "dicom_dir"],
     ct_path: Path,
     pred_pet_path: Path,
     real_pet_path: Optional[Path],
@@ -528,7 +520,7 @@ async def upload_case(
     if not has_ct_file and not has_dicom_directory:
         raise HTTPException(
             status_code=400,
-            detail="Provide either ct_file (.nii/.nii.gz/.zip/.dcm) or dicom_files",
+            detail="Provide either ct_file (.nii/.nii.gz) or dicom_files",
         )
 
     if not has_dicom_directory and real_pet_dicom_files:
@@ -545,12 +537,15 @@ async def upload_case(
 
     ct_path: Path
     real_pet_path: Optional[Path] = None
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"]
+    source_type: Literal["nifti", "dicom_dir"]
     dicom_metadata: Optional[dict[str, Any]] = None
     geometry_metadata: Optional[dict[str, Any]] = None
 
     if has_dicom_directory:
         source_type = "dicom_dir"
+
+        # 目录 DICOM 模式：真实 PET 只允许通过 real_pet_dicom_files（文件夹）提交，
+        # 避免与 NIfTI real_pet_file 混用导致歧义。
         if real_pet_file and real_pet_file.filename:
             raise HTTPException(
                 status_code=400,
@@ -566,6 +561,7 @@ async def upload_case(
         geometry_metadata = {"ct": standardized.geometry}
 
         if real_pet_dicom_files:
+            # 目录 DICOM 的 Real PET：读取 PT 序列并标准化为 NIfTI，随后重采样/对齐到 CT。
             pet_dicom_dir = upload_dir / "real_pet_dicom_dir"
             pet_dicom_dir.mkdir(parents=True, exist_ok=True)
             _save_directory_upload(real_pet_dicom_files, pet_dicom_dir)
@@ -586,7 +582,16 @@ async def upload_case(
     else:
         assert ct_file is not None
         filename = ct_file.filename or ""
+
         lower_name = filename.lower()
+        if lower_name.endswith(".zip") or lower_name.endswith(".dcm"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "DICOM ZIP mode has been removed. Please upload DICOM as a directory "
+                    "(dicom_files) and optional PET as a directory (real_pet_dicom_files)."
+                ),
+            )
 
         if _is_nifti_filename(filename):
             source_type = "nifti"
@@ -628,63 +633,15 @@ async def upload_case(
                     "geometry": extract_nifti_geometry(real_pet_path),
                     "alignment": alignment_meta,
                 }
-        elif lower_name.endswith(".zip") or lower_name.endswith(".dcm"):
-            source_type = "dicom_zip" if lower_name.endswith(".zip") else "dicom_dir"
-            dicom_root = upload_dir / "dicom"
-            dicom_root.mkdir(parents=True, exist_ok=True)
-
-            if lower_name.endswith(".zip"):
-                archive_bytes = await ct_file.read()
-                if len(archive_bytes) > 200 * 1024 * 1024:
-                    raise HTTPException(
-                        status_code=400, detail="DICOM ZIP file exceeds 200MB"
-                    )
-                archive_path = dicom_root / "study.zip"
-                archive_path.write_bytes(archive_bytes)
-                _extract_zip_to_directory(archive_path, dicom_root)
-                archive_path.unlink(missing_ok=True)
-            else:
-                single_dcm = await ct_file.read()
-                if len(single_dcm) > 200 * 1024 * 1024:
-                    raise HTTPException(
-                        status_code=400, detail="DICOM file exceeds 200MB"
-                    )
-                (dicom_root / "slice.dcm").write_bytes(single_dcm)
-
-            ct_path = upload_dir / "ct.nii.gz"
-            standardized = standardize_dicom_ct(dicom_root, ct_path)
-            ct_path = standardized.ct_path
-            dicom_metadata = standardized.metadata
-            geometry_metadata = {"ct": standardized.geometry}
-
-            if real_pet_file and real_pet_file.filename:
-                _validate_nifti(real_pet_file.filename)
-                pet_content = await real_pet_file.read()
-                if len(pet_content) > 200 * 1024 * 1024:
-                    raise HTTPException(
-                        status_code=400, detail="Real PET file exceeds 200MB"
-                    )
-                raw_pet_ext = _get_nifti_extension(pet_content)
-                raw_pet_path = upload_dir / f"real_pet_input{raw_pet_ext}"
-                raw_pet_path.write_bytes(pet_content)
-                standardized_pet_path = upload_dir / "real_pet.nii.gz"
-                real_pet_path, alignment_meta = align_reference_pet_to_ct(
-                    ct_path,
-                    raw_pet_path,
-                    standardized_pet_path,
-                )
-                geometry_metadata["reference_pet"] = {
-                    "geometry": extract_nifti_geometry(real_pet_path),
-                    "alignment": alignment_meta,
-                }
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Unsupported CT upload format. Use .nii, .nii.gz, .zip, or DICOM directory files",
+                detail="Unsupported CT upload format. Use .nii/.nii.gz or DICOM directory files",
             )
 
     pred_pet_path = output_dir / "pred_pet.nii.gz"
     try:
+        # 推理阶段：将标准化后的 CT NIfTI 输入模型，输出 Predicted PET NIfTI。
         result = active_converter.convert_nifti(str(ct_path), str(pred_pet_path))
     except (ImageFileError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid NIfTI file: {str(e)}")
@@ -715,6 +672,9 @@ async def upload_case(
         completed_at=result.inference_completed_at,
         error=result.inference_error,
     )
+
+    # 评估阶段（可选）：当 real_pet_path 存在时，对 Predicted PET vs Real PET 计算 PSNR/SSIM。
+    # 若缺失 real_pet_path，compute_volume_metrics 会返回 skipped（reference_pet_missing）。
     metrics_result = compute_volume_metrics(
         pred_path=str(pred_pet_path),
         reference_path=str(real_pet_path) if real_pet_path else None,

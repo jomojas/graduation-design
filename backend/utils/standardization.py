@@ -14,6 +14,11 @@ from nibabel.nifti1 import Nifti1Image
 from utils.dicom_ingest import read_dicom_series
 
 
+# 说明（中文）：
+# - standardize_* 负责把不同输入（DICOM/NIfTI）统一到模型可用的 NIfTI（.nii.gz）。
+# - 对齐 Real PET 的目标是让评估指标（PSNR/SSIM）在同一几何空间下计算。
+
+
 @dataclass
 class StandardizationResult:
     ct_path: Path
@@ -56,6 +61,7 @@ def standardize_dicom_ct(
     dicom_dir: Path,
     ct_output_path: Path,
 ) -> StandardizationResult:
+    # DICOM CT -> NIfTI：Modality 过滤为 CT。
     ct_volume, metadata = read_dicom_series(dicom_dir, modality="CT")
     geometry = metadata.get("geometry") or {}
     affine_ras = np.asarray(geometry.get("affine_ras", np.eye(4)), dtype=np.float64)
@@ -74,6 +80,7 @@ def standardize_dicom_pet(
     dicom_dir: Path,
     pet_output_path: Path,
 ) -> StandardizationResult:
+    # DICOM PET -> NIfTI：仅支持 PT（Positron Emission Tomography）。
     pet_volume, metadata = read_dicom_series(dicom_dir, modality="PT")
     geometry = metadata.get("geometry") or {}
     affine_ras = np.asarray(geometry.get("affine_ras", np.eye(4)), dtype=np.float64)
@@ -121,6 +128,8 @@ def align_reference_pet_to_ct(
     pet_path: Path,
     output_path: Path,
 ) -> tuple[Path, dict[str, Any]]:
+    # 这里不做复杂的配准，仅做“重采样到 CT 网格”（如果几何不一致）。
+    # 前提：PET 与 CT 大致对齐；若物理尺度差异过大则拒绝，避免生成错误评估。
     try:
         ct_img = sitk.ReadImage(str(ct_path))
         pet_img = sitk.ReadImage(str(pet_path))

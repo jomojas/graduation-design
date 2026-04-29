@@ -146,56 +146,6 @@ describe('CTUpload', () => {
     expect(screen.queryByText('0.0000')).not.toBeInTheDocument()
   })
 
-  it('submits zipped DICOM using ct_file payload', async () => {
-    renderUpload()
-    fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
-
-    const zipInput = getUploadInput('dicom-zip-input')
-    const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
-    fireEvent.change(zipInput, { target: { files: [zipFile] } })
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
-
-    await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalled()
-    })
-
-    const payload = mockedAxios.post.mock.calls[0]?.[1] as FormData
-    expect(payload.get('ct_file')).toBe(zipFile)
-    expect(payload.get('real_pet_file')).toBeNull()
-  })
-
-  it('submits zipped DICOM with optional real PET nifti payload', async () => {
-    renderUpload()
-    fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
-
-    const zipInput = getUploadInput('dicom-zip-input')
-    const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
-    fireEvent.change(zipInput, { target: { files: [zipFile] } })
-
-    const petInput = getUploadInput('real-pet-input')
-    const petFile = new File(['pet'], 'pet.nii.gz', { type: 'application/octet-stream' })
-    fireEvent.change(petInput, { target: { files: [petFile] } })
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
-
-    await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalled()
-    })
-
-    const payload = mockedAxios.post.mock.calls[0]?.[1] as FormData
-    expect(payload.get('ct_file')).toBe(zipFile)
-    expect(payload.get('real_pet_file')).toBe(petFile)
-  })
-
   it('submits browser directory DICOM as repeated dicom_files', async () => {
     renderUpload()
     fireEvent.click(screen.getByRole('radio', { name: '目录 DICOM' }))
@@ -264,16 +214,18 @@ describe('CTUpload', () => {
     mockedAxios.post.mockRejectedValueOnce({
       response: {
         data: {
-          detail: 'Invalid DICOM ZIP archive',
+          detail: 'DICOM ZIP mode has been removed',
         },
       },
     })
     renderUpload()
-    fireEvent.click(screen.getByRole('radio', { name: 'ZIP DICOM' }))
 
-    const zipInput = getUploadInput('dicom-zip-input')
-    const zipFile = new File(['zip-content'], 'study.zip', { type: 'application/zip' })
-    fireEvent.change(zipInput, { target: { files: [zipFile] } })
+    fireEvent.click(screen.getByRole('radio', { name: '目录 DICOM' }))
+
+    const directoryInput = getUploadInput('dicom-dir-input')
+    const dicom1 = new File(['a'], '1.dcm', { type: 'application/dicom' })
+    Object.defineProperty(dicom1, 'webkitRelativePath', { value: 'study/1.dcm' })
+    fireEvent.change(directoryInput, { target: { files: [dicom1] } })
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '开始 2.5D 推理' })).toBeEnabled()
@@ -281,7 +233,7 @@ describe('CTUpload', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开始 2.5D 推理' }))
 
-    expect(await screen.findByText('Invalid DICOM ZIP archive')).toBeInTheDocument()
+    expect(await screen.findByText('DICOM ZIP mode has been removed')).toBeInTheDocument()
   })
 
   it('shows staged processing steps while request is running', async () => {

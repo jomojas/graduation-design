@@ -24,7 +24,7 @@ class StudyStatusResponse(BaseModel):
     success: bool
     study_id: str
     job_id: str
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"]
+    source_type: Literal["nifti", "dicom_dir"]
     upload_mode: Literal["inference_only", "with_evaluation"]
     status: Literal["pending", "processing", "completed", "failed"]
     error: Optional[str] = None
@@ -42,7 +42,7 @@ class StudyResultResponse(BaseModel):
     success: bool
     study_id: str
     job_id: str
-    source_type: Literal["nifti", "dicom_zip", "dicom_dir"]
+    source_type: Literal["nifti", "dicom_dir"]
     upload_mode: Literal["inference_only", "with_evaluation"]
     status: Literal["pending", "processing", "completed", "failed"]
     error: Optional[str] = None

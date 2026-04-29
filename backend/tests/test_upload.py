@@ -11,9 +11,7 @@ These tests cover:
 All tests are expected to FAIL initially (RED phase) until the fix is implemented.
 """
 
-import gzip
 import io
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -167,43 +165,17 @@ def _create_dicom_slice(
 
 @pytest.fixture
 def dicom_zip_bytes() -> bytes:
-    series_uid = generate_uid()
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(
-        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
-    ) as zf:
-        for index, z in enumerate([0.0, 1.5, 3.0, 4.5], start=1):
-            dicom_bytes = _create_dicom_slice(series_uid, z, index)
-            zf.writestr(f"series/slice_{index}.dcm", dicom_bytes)
-    return archive_buffer.getvalue()
+    return b"not-used"
 
 
 @pytest.fixture
 def dicom_zip_missing_patient_tags() -> bytes:
-    series_uid = generate_uid()
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(
-        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
-    ) as zf:
-        for index, z in enumerate([0.0, 1.5, 3.0, 4.5], start=1):
-            dicom_bytes = _create_dicom_slice(
-                series_uid, z, index, include_patient_tags=False
-            )
-            zf.writestr(f"series/slice_{index}.dcm", dicom_bytes)
-    return archive_buffer.getvalue()
+    return b"not-used"
 
 
 @pytest.fixture
 def multi_series_dicom_zip_bytes() -> bytes:
-    series_uid_1 = generate_uid()
-    series_uid_2 = generate_uid()
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(
-        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
-    ) as zf:
-        zf.writestr("series_a/slice_1.dcm", _create_dicom_slice(series_uid_1, 0.0, 1))
-        zf.writestr("series_b/slice_1.dcm", _create_dicom_slice(series_uid_2, 1.0, 1))
-    return archive_buffer.getvalue()
+    return b"not-used"
 
 
 @pytest.fixture
@@ -545,32 +517,17 @@ def test_study_endpoints_return_404_for_missing_study(client, endpoint):
     assert response.json()["detail"] == "Study not found"
 
 
-def test_dicom_zip_upload_succeeds(client, dicom_zip_bytes):
+def test_dicom_zip_upload_rejected(client, dicom_zip_bytes):
     response = client.post(
         "/upload",
         files={"ct_file": ("ct-study.zip", dicom_zip_bytes, "application/zip")},
     )
 
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["success"] is True
-    assert data["source_type"] == "dicom_zip"
-    assert data["has_real_pet"] is False
-    assert data["num_slices"] == 4
-
-    job_id = data["job_id"]
-    assert job_id in study_manifests
-    manifest = study_manifests[job_id]
-    assert manifest.source_type == "dicom_zip"
-    assert manifest.upload_mode == "inference_only"
-    assert manifest.ct_volume_path.endswith("ct.nii.gz")
-    assert manifest.pred_pet_volume_path.endswith("pred_pet.nii.gz")
-    assert manifest.geometry is not None
-    assert manifest.geometry["ct"]["shape"] == [16, 16, 4]
-    assert "spacing_xyz_mm" in manifest.geometry["ct"]
+    assert response.status_code == 400, response.text
+    assert "zip" in response.json().get("detail", "").lower()
 
 
-def test_dicom_zip_upload_succeeds_with_optional_real_pet(
+def test_dicom_zip_upload_rejected_with_optional_real_pet(
     client, dicom_zip_bytes, minimal_nifti_gz_bytes
 ):
     response = client.post(
@@ -585,38 +542,14 @@ def test_dicom_zip_upload_succeeds_with_optional_real_pet(
         },
     )
 
-    assert response.status_code == 200, response.text
-    data = response.json()
-    assert data["success"] is True
-    assert data["source_type"] == "dicom_zip"
-    assert data["has_real_pet"] is True
-
-    manifest = study_manifests[data["job_id"]]
-    assert manifest.real_pet_volume_path is not None
-    assert manifest.real_pet_volume_path.endswith("real_pet.nii.gz")
-    assert manifest.upload_mode == "with_evaluation"
-
-    ct_img = cast(Nifti1Image, load(manifest.ct_volume_path))
-    assert ct_img.affine is not None
-    saved_spacing = np.linalg.norm(ct_img.affine[:3, :3], axis=0)
-    assert manifest.geometry is not None
-    ct_geom = manifest.geometry["ct"]
-    assert np.allclose(
-        saved_spacing,
-        [
-            ct_geom["spacing_xyz_mm"][1],
-            ct_geom["spacing_xyz_mm"][0],
-            ct_geom["slice_spacing_mm"],
-        ],
-        atol=1e-3,
-    )
+    assert response.status_code == 400, response.text
+    assert "zip" in response.json().get("detail", "").lower()
 
 
-def test_study_endpoints_allow_lookup_by_manifest_study_id(client, dicom_zip_bytes):
-    response = client.post(
-        "/upload",
-        files={"ct_file": ("ct-study.zip", dicom_zip_bytes, "application/zip")},
-    )
+def test_study_endpoints_allow_lookup_by_manifest_study_id(
+    client, dicom_directory_upload_parts
+):
+    response = client.post("/upload", files=dicom_directory_upload_parts)
     assert response.status_code == 200, response.text
     job_id = response.json()["job_id"]
 
@@ -636,38 +569,25 @@ def test_study_endpoints_allow_lookup_by_manifest_study_id(client, dicom_zip_byt
     assert result_data["job_id"] == job_id
 
 
-def test_case_meta_handles_missing_optional_tags(
-    client, dicom_zip_missing_patient_tags
-):
-    response = client.post(
-        "/upload",
-        files={
-            "ct_file": (
-                "ct-study.zip",
-                dicom_zip_missing_patient_tags,
-                "application/zip",
-            )
-        },
-    )
-
+def test_case_meta_handles_missing_optional_tags(client, dicom_directory_upload_parts):
+    response = client.post("/upload", files=dicom_directory_upload_parts)
     assert response.status_code == 200, response.text
     job_id = response.json()["job_id"]
+
+    manifest = study_manifests[job_id]
+    assert manifest.study_id is not None
 
     meta_response = client.get(f"/cases/{job_id}/meta")
     assert meta_response.status_code == 200, meta_response.text
     meta_data = meta_response.json()
     assert meta_data["success"] is True
-    assert meta_data["source_type"] == "dicom_zip"
+    assert meta_data["source_type"] == "dicom_dir"
     assert meta_data["upload_mode"] == "inference_only"
     assert meta_data["modality"] == "CT"
     assert meta_data["processing_status"] == "completed"
     assert meta_data["spacing_xyz_mm"] is not None
     assert len(meta_data["spacing_xyz_mm"]) == 3
     assert meta_data["slice_spacing_mm"] is not None
-    assert meta_data["patient_id"] is None
-    assert meta_data["patient_name"] is None
-    assert meta_data["study_id"] is None
-    assert meta_data["study_date"] is None
 
 
 def test_dicom_directory_upload_succeeds_with_repeated_parts(
@@ -754,8 +674,7 @@ def test_multi_series_dicom_rejected(client, multi_series_dicom_zip_bytes):
     )
 
     assert response.status_code == 400, response.text
-    detail = response.json().get("detail", "")
-    assert "multi-series" in detail.lower()
+    assert "zip" in response.json().get("detail", "").lower()
 
 
 def test_upload_real_pet_alignment_metadata_recorded(

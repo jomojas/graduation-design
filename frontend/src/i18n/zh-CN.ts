@@ -26,11 +26,8 @@ export const zhCN: TranslationCatalog = {
 
   niftiOnly: '仅支持 .nii 或 .nii.gz 文件',
   fileMax200mb: '文件大小必须 <= 200MB',
-  zipOnly: 'ZIP DICOM 模式仅支持 .zip 压缩包',
-  zipMax200mb: 'ZIP 文件大小必须 <= 200MB',
   eachDirFileMax200mb: '目录中的每个文件都必须 <= 200MB',
   uploadCtRequired: '请上传 CT NIfTI 文件',
-  uploadZipRequired: '请上传 DICOM ZIP 文件',
   uploadDirRequired: '请选择 DICOM 文件夹',
 
   panelUploadTitle: '上传数据',
@@ -41,13 +38,11 @@ export const zhCN: TranslationCatalog = {
   refresh: '刷新',
   submissionMode: '提交模式',
   modeNifti: 'NIfTI',
-  modeZipDicom: 'ZIP DICOM',
   modeDirDicom: '目录 DICOM',
 
   ctNiftiRequired: 'CT NIfTI（必选）',
   realPetOptional: '真实 PET NIfTI（可选）',
   realPetDicomOptional: '真实 PET DICOM 文件夹（可选）',
-  dicomZipRequired: 'DICOM ZIP（必选）',
   dicomDirRequired: 'DICOM 文件夹（必选）',
   chooseFile: '选择文件',
   chooseFolder: '选择文件夹',

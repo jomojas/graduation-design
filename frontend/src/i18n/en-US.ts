@@ -26,11 +26,8 @@ export const enUS: TranslationCatalog = {
 
   niftiOnly: 'Only .nii or .nii.gz files are supported',
   fileMax200mb: 'File size must be <= 200MB',
-  zipOnly: 'Only .zip archives are supported in zipped DICOM mode',
-  zipMax200mb: 'ZIP file size must be <= 200MB',
   eachDirFileMax200mb: 'Each directory file must be <= 200MB',
   uploadCtRequired: 'Please upload a CT NIfTI file',
-  uploadZipRequired: 'Please upload a DICOM ZIP file',
   uploadDirRequired: 'Please choose a DICOM directory',
 
   panelUploadTitle: 'Upload Volumes',
@@ -41,13 +38,11 @@ export const enUS: TranslationCatalog = {
   refresh: 'Refresh',
   submissionMode: 'Submission mode',
   modeNifti: 'NIfTI',
-  modeZipDicom: 'ZIP DICOM',
   modeDirDicom: 'Directory DICOM',
 
   ctNiftiRequired: 'CT NIfTI (required)',
   realPetOptional: 'Real PET NIfTI (optional)',
   realPetDicomOptional: 'Real PET DICOM directory (optional)',
-  dicomZipRequired: 'DICOM ZIP (required)',
   dicomDirRequired: 'DICOM directory (required)',
   chooseFile: 'Choose File',
   chooseFolder: 'Choose Folder',

@@ -35,6 +35,7 @@ export const useNiivueViewer = ({
   const viewerRef = useRef<NiivueViewerLike | null>(null)
 
   useEffect(() => {
+    // 中文说明：每个 Viewer hook 都会创建一个独立的 Niivue 实例，并在卸载时 cleanup。
     const viewer = new Niivue() as unknown as NiivueViewerLike
     viewerRef.current = viewer
     onViewerReady?.(viewer)
@@ -64,6 +65,7 @@ export const useNiivueViewer = ({
       return
     }
 
+    // 仅加载 NIfTI（.nii/.nii.gz）；其它 URL（例如占位/非影像资源）会被过滤。
     const resolvedVolumes = volumes.filter((volume) => isNiftiVolume(volume.url))
     if (resolvedVolumes.length === 0) {
       return
@@ -78,6 +80,7 @@ export const useNiivueViewer = ({
       return
     }
 
+    // 中文说明：把当前 viewer 与 peers 建立同步连接（双向同步在各自 viewer 中分别调用）。
     synchronizeNiivuePeers(viewer, syncPeers)
   }, [syncPeers])
 

@@ -58,6 +58,8 @@ class SlidingWindowInferenceEngine:
         if ct_volume.shape[2] < 1:
             raise ValueError("CT volume has no slices")
 
+        # 2.5D 推理：对每个目标切片 i，取其前后各 pad_slices 张切片组成 7 张堆栈（默认 3+1+3）。
+        # 为了处理边界，使用 edge replication padding（边缘复制）。
         padded = image_processor.pad_volume_edge(ct_volume, pad_slices=self.pad_slices)
         pred_volume = np.zeros(ct_volume.shape, dtype=np.float32)
         with torch.no_grad():
@@ -68,6 +70,8 @@ class SlidingWindowInferenceEngine:
                 input_tensor = torch.from_numpy(stack).unsqueeze(0).to(device)
                 output = model(input_tensor)
                 output_np = output.squeeze(0).detach().cpu().numpy()
+
+                # 模型输出通常是多通道；当前实现沿用原始语义，取第 2 个通道作为预测 PET。
                 pred_volume[:, :, i - self.pad_slices] = output_np[1]
 
         completed_at = datetime.utcnow()

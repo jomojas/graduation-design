@@ -1,13 +1,16 @@
 import io
+from typing import Any
 
-import nibabel as nib
+from nibabel.loadsave import load, save
+from nibabel.nifti1 import Nifti1Image
 import numpy as np
 from PIL import Image
 
 
 class ImageProcessor:
     def load_nifti(self, file_path: str) -> tuple[np.ndarray, np.ndarray]:
-        nifti = nib.load(file_path)
+        # 读取 NIfTI 并返回 (volume, affine)。项目只支持 3D 体数据。
+        nifti: Any = load(file_path)
         volume = np.asarray(nifti.get_fdata(), dtype=np.float32)
         if volume.ndim != 3:
             raise ValueError("Only 3D NIfTI volumes are supported")
@@ -16,8 +19,8 @@ class ImageProcessor:
     def save_nifti(
         self, volume: np.ndarray, affine: np.ndarray, output_path: str
     ) -> None:
-        nifti = nib.Nifti1Image(volume.astype(np.float32), affine)
-        nib.save(nifti, output_path)
+        nifti = Nifti1Image(volume.astype(np.float32), affine)
+        save(nifti, output_path)
 
     def preprocess_ct_volume(
         self,
@@ -25,6 +28,7 @@ class ImageProcessor:
         min_hu: float = -900.0,
         max_hu: float = 200.0,
     ) -> np.ndarray:
+        # CT 预处理：把 HU 裁剪到固定范围并归一化到 [0, 1]，与训练/推理期保持一致。
         clipped = np.clip(volume, min_hu, max_hu)
         normalized = (clipped - min_hu) / (max_hu - min_hu)
         return normalized.astype(np.float32)
